@@ -328,9 +328,14 @@ function reconstructRegions(params) {
     }
 
     /**
-     * Apply style definition to a path item.
+     * Apply style definition to a single PathItem.
+     *
+     * NOTE: never call this with a CompoundPathItem. That object has no
+     * `filled`/`fillColor` of its own — assigning them succeeds silently on
+     * the JS wrapper and reads back correctly while the document is never
+     * touched. Use _applyStyleDeep, which walks into the child paths.
      */
-    function _applyStyle(item, sDef) {
+    function _applyStyleLeaf(item, sDef) {
         if (sDef.filled !== undefined) item.filled = sDef.filled;
         if (sDef.stroked !== undefined) item.stroked = sDef.stroked;
 
@@ -373,6 +378,23 @@ function reconstructRegions(params) {
     }
 
     /**
+     * Apply style to a path or compound path.
+     *
+     * A CompoundPathItem carries no style itself; Illustrator renders it
+     * using the style of its member paths. Assigning to the container is a
+     * silent no-op, so style every child path instead.
+     */
+    function _applyStyleDeep(item, sDef) {
+        if (item.typename === "CompoundPathItem") {
+            for (var ci = 0; ci < item.pathItems.length; ci++) {
+                _applyStyleLeaf(item.pathItems[ci], sDef);
+            }
+            return;
+        }
+        _applyStyleLeaf(item, sDef);
+    }
+
+    /**
      * Track bounds in SOC coordinates.
      */
     function _trackBounds(socPoints) {
@@ -397,7 +419,7 @@ function reconstructRegions(params) {
             var simplePath = _createPath(region.outer, true, targetLayer);
             simplePath.note = "@mcp:id=" + id;
             if (itemName) simplePath.name = itemName + (regions.length > 1 ? "_" + ri : "");
-            _applyStyle(simplePath, styleDef);
+            _applyStyleDeep(simplePath, styleDef);
             createdIds.push(id);
             createdTypes.push("PathItem");
         } else {
@@ -430,18 +452,18 @@ function reconstructRegions(params) {
             if (compound) {
                 compound.note = "@mcp:id=" + id;
                 if (itemName) compound.name = itemName + (regions.length > 1 ? "_" + ri : "");
-                _applyStyle(compound, styleDef);
+                _applyStyleDeep(compound, styleDef);
                 createdIds.push(id);
                 createdTypes.push("CompoundPathItem");
             } else {
                 // Fallback: compound path creation failed, keep individual paths
                 outerPath.note = "@mcp:id=" + id;
                 if (itemName) outerPath.name = itemName;
-                _applyStyle(outerPath, styleDef);
+                _applyStyleDeep(outerPath, styleDef);
                 createdIds.push(id);
                 createdTypes.push("PathItem (compound failed)");
                 for (var fhi = 0; fhi < holePaths.length; fhi++) {
-                    _applyStyle(holePaths[fhi], styleDef);
+                    _applyStyleDeep(holePaths[fhi], styleDef);
                 }
             }
 

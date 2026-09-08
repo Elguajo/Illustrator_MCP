@@ -187,14 +187,33 @@ class TestPythonHandler:
 
 
 class TestPyprojectToml:
-    """Verify pyclipper is in optional dependencies."""
+    """pyclipper must be a core dependency, not an opt-in extra.
+
+    path_boolean is one of the 13 registered tools, and execute_script's
+    docstring instructs the agent to use it for every unite/subtract, so a
+    default install without pyclipper leaves a documented tool that raises
+    ImportError on first use.
+    """
 
     @pytest.fixture(autouse=True)
     def load_toml(self):
         self.source = PYPROJECT_PATH.read_text(encoding="utf-8")
 
-    def test_geometry_extras(self):
+    def test_pyclipper_declared(self):
         assert "pyclipper" in self.source
 
-    def test_geometry_group(self):
-        assert "geometry" in self.source
+    def test_pyclipper_is_a_core_dependency(self):
+        """pyclipper sits in [project].dependencies, not optional-dependencies."""
+        core = self.source.split("dependencies = [", 1)[1].split("]", 1)[0]
+        assert "pyclipper" in core, (
+            "pyclipper moved out of core dependencies — a default install would "
+            "leave path_boolean broken."
+        )
+
+    def test_no_geometry_extra(self):
+        """The old opt-in extra is gone, so docs cannot point users back to it."""
+        optional = self.source.split("[project.optional-dependencies]", 1)[1]
+        optional = optional.split("[project.scripts]", 1)[0]
+        assert "geometry" not in optional, (
+            "the geometry extra is back; pyclipper belongs in core dependencies"
+        )

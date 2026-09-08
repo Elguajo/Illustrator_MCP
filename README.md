@@ -85,18 +85,10 @@ cd Illustrator_MCP
 pip install -e .
 ```
 
-This installs core dependencies including [Pillow](https://python-pillow.org/) for VLM preview overlays.
-
-**Optional — boolean path operations:**
+This installs all runtime dependencies, including [Pillow](https://python-pillow.org/) for VLM preview overlays and [pyclipper](https://github.com/fonttools/pyclipper) for `path_boolean` (unite, subtract, intersect, xor). If using `uv`:
 
 ```bash
-pip install -e ".[geometry]"
-```
-
-This adds [pyclipper](https://github.com/fonttools/pyclipper) for `path_boolean` (unite, subtract, intersect, xor). If using `uv`:
-
-```bash
-uv sync --extra geometry
+uv sync
 ```
 
 ### 2. Build & Install the CEP Extension
@@ -232,7 +224,7 @@ Every tool carries a `CONTRACT:` line in its docstring and machine-checkable ann
 | Tool | Description |
 |---|---|
 | `illustrator_path_import_svg` | Import an SVG path `d` attribute. Parses server-side, converts arcs to cubic Béziers. Hardcoded safety limits. |
-| `illustrator_path_boolean` | Boolean operations (unite, subtract, intersect, xor) on paths. Uses [pyclipper](https://github.com/fonttools/pyclipper) for polygon clipping. Bézier curves are auto-flattened. Requires `geometry` extras. |
+| `illustrator_path_boolean` | Boolean operations (unite, subtract, intersect, xor) on paths. Uses [pyclipper](https://github.com/fonttools/pyclipper) for polygon clipping. Bézier curves are auto-flattened. |
 
 ### Query & Validation (2)
 
@@ -348,7 +340,7 @@ Handles and mirror are resolved Python-side before reaching JSX — the AI provi
 
 **SVG path import:** Use the dedicated `path_import_svg` tool to import SVG `d` attributes. The path string is parsed Python-side into geometry IR (supports M/L/H/V/C/S/Q/T/A/Z commands including arc-to-cubic conversion), then drawn via `geometry.drawPathPoints`. Hardcoded safety limits prevent abuse (50k chars, 5k segments, 100 subpaths, ±100k coordinates).
 
-**Path boolean:** Use `path_boolean` to unite, subtract, intersect, or xor shapes by MCP ID. The pipeline extracts geometry from Illustrator (ExtendScript), flattens any Bézier curves (Python), runs the boolean via pyclipper (Python), and reconstructs the result as a `PathItem` or `CompoundPathItem` (ExtendScript). Shapes with holes produce `CompoundPathItem` automatically. Requires `geometry` extras (`pip install -e ".[geometry]"`).
+**Path boolean:** Use `path_boolean` to unite, subtract, intersect, or xor shapes by MCP ID. The pipeline extracts geometry from Illustrator (ExtendScript), flattens any Bézier curves (Python), runs the boolean via pyclipper (Python), and reconstructs the result as a `PathItem` or `CompoundPathItem` (ExtendScript). Shapes with holes produce `CompoundPathItem` automatically.
 
 **Clipping masks:** `clip_create` creates a clipping mask group from a mask path and content items referenced by MCP ID. Supports `dryRun` mode for validation without mutation, parent-aware placement, and mask type validation.
 
@@ -914,7 +906,7 @@ Illustrator_MCP/
 ### Running Tests
 
 ```bash
-pip install -e ".[dev,geometry]"
+pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
