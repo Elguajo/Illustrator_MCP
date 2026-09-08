@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# A new push supersedes an in-flight run on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: tests (python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Verify path_boolean dependencies resolve
+        # pyclipper is a core dependency precisely because path_boolean is a
+        # registered tool. A default install that cannot import it ships a
+        # documented tool that raises on first use.
+        run: python -c "import pyclipper; from illustrator_mcp.geometry import path_boolean; print(path_boolean.__name__)"
+
+      - name: Tests
+        run: pytest -q --no-cov
+
+      - name: Coverage
+        if: matrix.python-version == '3.12'
+        run: pytest -q --cov=illustrator_mcp --cov-report=term --cov-report=xml
+
+      - name: No stray Windows-path artifacts
+        # Tests that pass a literal "C:/..." path create a directory named "C:"
+        # in the working tree on POSIX. Catch it here rather than in review.
+        run: |
+          if [ -e "C:" ]; then
+            echo "::error::tests created a 'C:' directory — use tmp_path for filesystem paths"
+            find "C:" | head -20
+            exit 1
+          fi
+
+  panel:
+    name: cep panel build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: cep-extension/package-lock.json
+
+      - name: Install
+        working-directory: cep-extension
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: cep-extension
+        # The panel has no tsconfig.json, so vite/SWC strips types without
+        # checking them. Check the sources explicitly until one is added.
+        run: |
+          npx tsc --noEmit --jsx react-jsx --target ES2020 --module ESNext \
+            --moduleResolution bundler --strict --skipLibCheck \
+            --allowImportingTsExtensions \
+            src/session.ts src/hooks/useMCP.ts src/components/MCPControlPanel.tsx \
+            src/App.tsx src/main.tsx
+
+      - name: Build
+        working-directory: cep-extension
+        run: npm run build
