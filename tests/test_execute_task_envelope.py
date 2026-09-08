@@ -127,6 +127,21 @@ class TestTaskreportFirstError:
         assert err["details"]["actual"]["typename"] == "TextFrame"
         assert err["itemRef"]["identity"]["itemId"] == "mcp_badge"
 
+    def test_envelope_preserves_grounded_target_details(self):
+        from illustrator_mcp.errors import make_envelope
+
+        envelope = json.loads(make_envelope(
+            ok=False,
+            error={
+                "code": "R001",
+                "message": "Grounded ID target is stale",
+                "details": {"reason": "precondition_failed"},
+                "itemRef": {"identity": {"itemId": "mcp_badge"}},
+            },
+        ))
+        assert envelope["error"]["details"]["reason"] == "precondition_failed"
+        assert envelope["error"]["itemRef"]["identity"]["itemId"] == "mcp_badge"
+
 
 # ── _dedup_warnings ───────────────────────────────────────────────
 
@@ -220,3 +235,58 @@ class TestPhase3ReportOkFalse:
         assert envelope["error"]["code"] == "V011"
         assert envelope["error"]["operation"] == "element_create_batch"
         assert envelope["diagnostics"]["stats"]["itemsSkipped"] == 1
+
+    @pytest.mark.asyncio
+    async def test_nested_collect_error_keeps_grounded_details_after_fallback(self, monkeypatch):
+        from unittest.mock import AsyncMock
+        from illustrator_mcp.protocol import TaskPayload
+        from illustrator_mcp.tools.task_execution import ExecuteTaskInput, illustrator_execute_task
+
+        raw_report = {
+            "ok": False,
+            "stats": {"itemsProcessed": 0, "itemsModified": 0, "itemsSkipped": 1},
+            "timing": {},
+            "warnings": [],
+            "errors": [{"ok": False, "error": {
+                "code": "R001", "message": "Grounded ID target is stale", "stage": "collect",
+                "details": {"reason": "precondition_failed"},
+            }}],
+        }
+        monkeypatch.setattr(
+            "illustrator_mcp.tools.task_execution.execute_script_with_context",
+            AsyncMock(return_value={"result": json.dumps(raw_report)}),
+        )
+
+        response = await illustrator_execute_task(ExecuteTaskInput(
+            payload=TaskPayload(task="live_handoff", targets={"type": "id", "ids": ["mcp_badge"]}),
+            compute_fn="return [];",
+            apply_fn="return;",
+            return_preview=False,
+        ))
+        envelope = json.loads(response)
+        assert envelope["ok"] is False
+        assert envelope["error"]["code"] == "R001"
+        assert envelope["error"]["details"]["reason"] == "precondition_failed"
+
+    @pytest.mark.asyncio
+    async def test_type_only_handoff_precondition_omits_null_bounds(self, monkeypatch):
+        from unittest.mock import AsyncMock
+        from illustrator_mcp.protocol import TaskPayload
+        from illustrator_mcp.tools.task_execution import ExecuteTaskInput, illustrator_execute_task
+
+        execute = AsyncMock(return_value={"result": json.dumps({"ok": True})})
+        monkeypatch.setattr(
+            "illustrator_mcp.tools.task_execution.execute_script_with_context", execute
+        )
+
+        await illustrator_execute_task(ExecuteTaskInput(
+            payload=TaskPayload(
+                task="type_only_handoff",
+                targets={"type": "id", "ids": ["mcp_badge"], "precondition": {"type": "PathItem"}},
+            ),
+            compute_fn="return [];",
+            apply_fn="return;",
+            return_preview=False,
+        ))
+        script = execute.await_args.kwargs["script"]
+        assert '"bounds_screen": null' not in script

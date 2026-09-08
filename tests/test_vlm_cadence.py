@@ -301,7 +301,7 @@ class TestCheckpointInstruction(unittest.TestCase):
                     new_callable=AsyncMock,
                     return_value=(mock_guard, mock_telemetry)):
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 illustrator_execute_script(params)
             )
 
@@ -377,7 +377,7 @@ class TestCheckpointInstruction(unittest.TestCase):
                     new_callable=AsyncMock,
                     return_value=(tiny_png, mock_annotation_result)):
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 illustrator_execute_script(params)
             )
 
@@ -421,7 +421,7 @@ class TestReviewFixes(unittest.TestCase):
                     new_callable=AsyncMock,
                     return_value=(mock_guard, {})):
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 illustrator_execute_script(params)
             )
 
@@ -469,7 +469,7 @@ class TestReviewFixes(unittest.TestCase):
              patch("illustrator_mcp.tools.task_execution._capture_artboard",
                     new_callable=AsyncMock) as mock_capture:
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 execute.illustrator_execute_task(params)
             )
 
@@ -515,7 +515,7 @@ class TestReviewFixes(unittest.TestCase):
              patch("illustrator_mcp.tools.task_execution._capture_artboard",
                     new_callable=AsyncMock) as mock_capture:
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 execute.illustrator_execute_task(params)
             )
 
@@ -544,7 +544,7 @@ class TestReviewFixes(unittest.TestCase):
                     subject="id_A",
                     clip="id_B",
                 )
-                asyncio.get_event_loop().run_until_complete(
+                asyncio.run(
                     illustrator_path_boolean(params)
                 )
             except Exception:
@@ -696,4 +696,3 @@ class TestExecuteTaskPreviewMode(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

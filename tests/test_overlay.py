@@ -789,7 +789,7 @@ class TestAnnotatePreviewEnvelopeUnwrap(unittest.TestCase):
             new_callable=AsyncMock,
             return_value=mock_response,
         ):
-            _, result = asyncio.get_event_loop().run_until_complete(
+            _, result = asyncio.run(
                 _annotate_preview(png, max_items=200, timeout=5.0)
             )
 
@@ -817,7 +817,7 @@ class TestAnnotatePreviewEnvelopeUnwrap(unittest.TestCase):
             new_callable=AsyncMock,
             return_value=mock_response,
         ):
-            _, result = asyncio.get_event_loop().run_until_complete(
+            _, result = asyncio.run(
                 _annotate_preview(png, max_items=200, timeout=5.0)
             )
 
@@ -853,7 +853,7 @@ class TestAnnotatePreviewEnvelopeUnwrap(unittest.TestCase):
             new_callable=AsyncMock,
             return_value=mock_response,
         ):
-            _, result = asyncio.get_event_loop().run_until_complete(
+            _, result = asyncio.run(
                 _annotate_preview(png, max_items=200, timeout=5.0)
             )
 

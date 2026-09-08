@@ -16,28 +16,41 @@ def registry():
     return RequestRegistry()
 
 
-def _create_streaming(registry: RequestRegistry):
+@pytest.fixture
+def synchronous_loop():
+    """An explicit loop for synchronous tests on Python 3.12+."""
+    loop = asyncio.new_event_loop()
+    try:
+        yield loop
+    finally:
+        loop.close()
+
+
+def _create_streaming(
+    registry: RequestRegistry, loop: asyncio.AbstractEventLoop | None = None
+):
     """Helper to create a streaming request with a real event loop."""
-    loop = asyncio.get_event_loop()
-    req_id, queue = registry.create_streaming_request(loop, "test_script")
+    if loop is None:
+        loop = asyncio.get_running_loop()
+    req_id, _ = registry.create_streaming_request(loop, "test_script")
     return req_id
 
 
 class TestStreamingRace:
     """Tests for sentinel-driven streaming completion."""
 
-    def test_push_update_basic(self, registry):
+    def test_push_update_basic(self, registry, synchronous_loop):
         """push_update delivers message to queue."""
-        req_id = _create_streaming(registry)
+        req_id = _create_streaming(registry, synchronous_loop)
         assert registry.push_update(req_id, {"type": "progress", "value": 42})
 
     def test_push_update_unknown_id(self, registry):
         """push_update returns False for unknown request."""
         assert not registry.push_update(999, {"type": "progress"})
 
-    def test_complete_streaming_sends_sentinel(self, registry):
+    def test_complete_streaming_sends_sentinel(self, registry, synchronous_loop):
         """complete_streaming puts {type: 'complete'} sentinel in queue."""
-        req_id = _create_streaming(registry)
+        req_id = _create_streaming(registry, synchronous_loop)
         assert registry.complete_streaming(req_id, {"result": "done"})
 
         # Entry remains in _streaming (cleanup by stream_updates)
@@ -47,9 +60,9 @@ class TestStreamingRace:
         assert msg["type"] == "complete"
         assert msg["result"] == "done"
 
-    def test_no_completed_flag(self, registry):
+    def test_no_completed_flag(self, registry, synchronous_loop):
         """StreamingRequest no longer has a `completed` field."""
-        req_id = _create_streaming(registry)
+        req_id = _create_streaming(registry, synchronous_loop)
         streaming = registry._streaming[req_id]
         assert not hasattr(streaming, "completed"), \
             "StreamingRequest should not have 'completed' flag — sentinel-only"
@@ -131,9 +144,9 @@ class TestStreamingRace:
         # Should be cleaned up
         assert req_id not in registry._streaming
 
-    def test_cancel_all_sends_sentinel(self, registry):
+    def test_cancel_all_sends_sentinel(self, registry, synchronous_loop):
         """cancel_all sends {type: 'complete', cancelled: true} sentinel."""
-        req_id = _create_streaming(registry)
+        req_id = _create_streaming(registry, synchronous_loop)
         registry.cancel_all("test cancellation")
 
         # After cancel_all, _streaming is cleared

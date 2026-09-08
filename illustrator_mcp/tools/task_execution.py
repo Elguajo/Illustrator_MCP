@@ -288,7 +288,10 @@ async def illustrator_execute_task(params: ExecuteTaskInput) -> Union[str, list]
     # Build the execution script
     # SOC batch mode: force kind="creation" so pipeline skips collect
     # and doesn't early-return before reaching compute stage.
-    payload_data = params.payload.model_dump(mode="json")
+    # Omit optional fields rather than emitting ``null``. ExtendScript uses
+    # property presence to validate target preconditions, so a type-only
+    # precondition must not become ``bounds_screen: null`` at the boundary.
+    payload_data = params.payload.model_dump(mode="json", exclude_none=True)
 
     # ── Level 3/4 preprocessing: polar handles + mirror ──────
     if payload.task == "element_create":
@@ -426,7 +429,15 @@ JSON.stringify(report);
 
         # ── Phase 1: Canonical unwrap + classify ──
         base = build_envelope_dict(response, context=context, diagnostics=diagnostics)
-        if not base["ok"]:
+        # A TaskReport intentionally uses ``ok: false`` for a domain-level
+        # failure.  It is not a bridge failure: keep parsing it below so the
+        # public envelope retains the structured collect error (including
+        # grounded-ID ``details``) instead of short-circuiting with null error.
+        is_task_report_failure = (
+            isinstance(base.get("result"), dict)
+            and base["result"].get("ok") is False
+        )
+        if not base["ok"] and not is_task_report_failure:
             return json.dumps(base)  # short-circuit: bridge/injection/JSX error
 
         # ── Phase 2: Parse TaskReport from classified result ──
@@ -506,9 +517,15 @@ JSON.stringify(report);
                 })()
                 merged_warnings = _dedup_warnings(merged_warnings, fallback_warnings)
                 merged_diag = parse_diag
+                fallback_error = (
+                    _taskreport_first_error(report_data, params.payload.task)
+                    if not fallback_ok
+                    else None
+                )
                 envelope = make_envelope(
                     ok=fallback_ok,
                     result={"formatted": formatted, "report": report_data},
+                    error=fallback_error,
                     warnings=merged_warnings,
                     diagnostics=merged_diag,
                 )

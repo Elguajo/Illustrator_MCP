@@ -62,7 +62,7 @@ class TestDisconnectCancel:
         """Streaming queues get cancel sentinel on disconnect."""
         registry = RequestRegistry()
         req_id, queue = registry.create_streaming_request(
-            asyncio.get_event_loop(), "streaming_script"
+            asyncio.get_running_loop(), "streaming_script"
         )
 
         registry.cancel_all("CEP panel disconnected")
@@ -265,4 +265,3 @@ class TestStateTransitions:
         with pytest.raises(ConnectionError, match="shutdown"):
             f1.result()
         loop.close()
-

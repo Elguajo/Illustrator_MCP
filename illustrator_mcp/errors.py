@@ -757,7 +757,10 @@ def make_envelope(
                     "error dict must include 'code' and 'message'; "
                     f"got keys: {sorted(error.keys())}"
                 )
-            # Normalise: guarantee suggestions exists + preserve optional fields
+            # Normalise: guarantee suggestions exists + preserve optional fields.
+            # ``details`` and ``itemRef`` are part of the grounded-ID handoff
+            # contract: callers need them to explain a stale or inaccessible
+            # target without another visual grounding pass.
             error_out = {
                 "code": error["code"],
                 "message": error["message"],
@@ -767,6 +770,10 @@ def make_envelope(
                 error_out["line"] = error["line"]
             if "operation" in error:
                 error_out["operation"] = error["operation"]
+            if "details" in error:
+                error_out["details"] = error["details"]
+            if "itemRef" in error:
+                error_out["itemRef"] = error["itemRef"]
         else:
             structured = create_structured_error(str(error))
             error_out = {
@@ -782,4 +789,3 @@ def make_envelope(
         "diagnostics": diagnostics,
         "result": result if ok else None,
     })
-

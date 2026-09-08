@@ -8,7 +8,15 @@ Bug 3: z_telemetry gradient fill detection (tested via occlusion_guard unit test
 """
 
 import json
+from pathlib import Path
+
 import pytest
+
+
+COMPUTE_SOC_BATCH = (
+    Path(__file__).resolve().parents[1]
+    / "illustrator_mcp/resources/templates/compute_soc_batch.jsx"
+)
 
 
 # ==================== Bug 1: Template Aliases ====================
@@ -179,13 +187,7 @@ class TestComputeSocBatchTargetForwarding:
 
     def test_single_op_includes_targets(self):
         """compute_soc_batch.jsx single-op wrapper must include targets."""
-        from pathlib import Path
-
-        jsx_path = Path(
-            "c:/Users/k.jin/OneDrive/PhD/claude/Illustrator_Agent/"
-            "Illustrator_MCP/illustrator_mcp/resources/templates/compute_soc_batch.jsx"
-        )
-        content = jsx_path.read_text(encoding="utf-8")
+        content = COMPUTE_SOC_BATCH.read_text(encoding="utf-8")
 
         # The single-op wrapper should include 'targets: payload.targets'
         assert "targets: payload.targets" in content, (
@@ -198,13 +200,7 @@ class TestComputeSocBatchTargetForwarding:
 
     def test_batch_mode_ops_not_modified(self):
         """Batch mode (params.ops) should use ops as-is, not inject targets."""
-        from pathlib import Path
-
-        jsx_path = Path(
-            "c:/Users/k.jin/OneDrive/PhD/claude/Illustrator_Agent/"
-            "Illustrator_MCP/illustrator_mcp/resources/templates/compute_soc_batch.jsx"
-        )
-        content = jsx_path.read_text(encoding="utf-8")
+        content = COMPUTE_SOC_BATCH.read_text(encoding="utf-8")
 
         # In batch mode, ops come from params.ops directly
         assert "ops = params.ops" in content
@@ -215,13 +211,7 @@ class TestItemsModifiedCounting:
 
     def test_modified_from_handler_data(self):
         """compute_soc_batch.jsx must sum data.modified from op results."""
-        from pathlib import Path
-
-        jsx_path = Path(
-            "c:/Users/k.jin/OneDrive/PhD/claude/Illustrator_Agent/"
-            "Illustrator_MCP/illustrator_mcp/resources/templates/compute_soc_batch.jsx"
-        )
-        content = jsx_path.read_text(encoding="utf-8")
+        content = COMPUTE_SOC_BATCH.read_text(encoding="utf-8")
 
         # Must use typeof guard (not truthiness) for modified:0
         assert 'typeof n === "number"' in content, (
@@ -233,13 +223,7 @@ class TestItemsModifiedCounting:
 
     def test_empty_targets_warning(self):
         """Must warn when targets provided but resolved to 0 items."""
-        from pathlib import Path
-
-        jsx_path = Path(
-            "c:/Users/k.jin/OneDrive/PhD/claude/Illustrator_Agent/"
-            "Illustrator_MCP/illustrator_mcp/resources/templates/compute_soc_batch.jsx"
-        )
-        content = jsx_path.read_text(encoding="utf-8")
+        content = COMPUTE_SOC_BATCH.read_text(encoding="utf-8")
 
         assert "Resolved 0 targets" in content, (
             "Must warn when targets resolve to empty"
@@ -280,4 +264,3 @@ class TestTaskStatsCreatedField:
         assert "2 modified" in output
         # Should NOT have the old combined format
         assert "created/modified" not in output
-
