@@ -758,6 +758,30 @@ netstat -ano | findstr 8081  # Windows
 If occupied, change `WS_PORT` in `.env` and restart. The panel picks the new
 port up from the handshake file — no rebuild needed.
 
+### Distributing the Panel
+
+`install-cep.sh` symlinks the source folder and turns on `PlayerDebugMode`.
+That works on your own machine and nowhere else: without debug mode Illustrator
+refuses to load an unsigned extension, so a copied folder shows no panel at all.
+For anyone else, ship a signed `.zxp`:
+
+```bash
+scripts/package-cep.sh          # build + stage, reports what would ship
+scripts/package-cep.sh --sign   # produce build/cep/*.zxp
+```
+
+Staging builds the panel, copies only `CSXS/`, `dist/`, `jsx/` and `index.html`,
+drops any `.debug` file, and verifies that the manifest's `MainPath` and
+`ScriptPath` actually exist in the package — a wrong path there fails silently
+as an empty panel.
+
+Signing additionally needs Adobe's `ZXPSignCmd`, downloaded once from
+[CEP-Resources](https://github.com/Adobe-CEP/CEP-Resources/tree/master/ZXPSignCMD)
+and placed on `PATH` (or pointed at with `ZXPSIGNCMD`), plus `CERT_PASSWORD` in
+the environment. With no certificate at `build/cep/self-signed.p12` the script
+creates a self-signed one — enough for Illustrator to load the extension, but
+not a trusted publisher identity.
+
 ### Panel Will Not Authenticate
 
 The panel log shows the reason:
