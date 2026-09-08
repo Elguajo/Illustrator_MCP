@@ -927,7 +927,8 @@ Illustrator_MCP/
 │   ├── test_auto_tag.py          # Auto-assign MCP IDs tests (19 tests)
 │   └── test_brand_social_kit_fixes.py
 ├── scripts/
-│   └── gen_schemas.py            # Schema codegen (Python -> JSX)
+│   ├── mcp_relay.py              # Relay helper
+│   └── validate_manifest_deps.py # Manifest dependency checker
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── ROADMAP_v2.4.md
@@ -958,11 +959,16 @@ With Illustrator running and the CEP panel connected, use `pytest -m integration
 
 ### Schema Codegen
 
-Regenerate the ExtendScript parameter schemas from Python definitions:
+`illustrator_mcp/schemas/contracts.py` is the single source of truth for
+operation schemas. Recompile the ExtendScript side after editing it:
 
 ```bash
-python -m scripts.gen_schemas
+python -m illustrator_mcp.tools.compile_contracts
 ```
+
+This writes `resources/scripts/contracts.jsx` with an embedded checksum;
+`test_contracts_jsx_staleness` fails if the two drift apart, and
+`test_soc_contracts` cross-checks the op set against the JSX handlers.
 
 ### Design Principles
 

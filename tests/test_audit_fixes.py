@@ -205,6 +205,36 @@ class TestOrphanSchemasDeleted:
         path = SCRIPTS_DIR / "op_schemas.json"
         assert not path.exists(), f"Orphan file still exists: {path}"
 
+    def test_schema_generator_absent(self):
+        """scripts/gen_schemas.py must stay deleted.
+
+        It regenerated op_schemas.jsx as a full second copy of the schemas,
+        overwriting the forwarder that defers to contracts.jsx, and emitted the
+        orphan op_schemas.json the test above forbids. contracts.py is the SSOT
+        and illustrator_mcp.tools.compile_contracts is the only compiler.
+        """
+        path = SCRIPTS_DIR.parent.parent.parent / "scripts" / "gen_schemas.py"
+        assert not path.exists(), (
+            f"{path} is back. Running it forks the schema source of truth; "
+            "use `python -m illustrator_mcp.tools.compile_contracts` instead."
+        )
+
+    def test_op_schemas_jsx_stays_a_forwarder(self):
+        """op_schemas.jsx must not define schemas of its own.
+
+        It is a deprecated no-op shim kept for backward compatibility; the real
+        OP_PARAM_SCHEMAS lives in contracts.jsx. A definition here would mean a
+        second, silently diverging copy.
+        """
+        path = SCRIPTS_DIR / "op_schemas.jsx"
+        if not path.exists():
+            return  # removing the shim entirely is fine
+        content = path.read_text(encoding="utf-8")
+        assert "var OP_PARAM_SCHEMAS = {" not in content, (
+            "op_schemas.jsx defines OP_PARAM_SCHEMAS again — it must only "
+            "forward to contracts.jsx."
+        )
+
 
 class TestGlossaryComment:
     """results → ops glossary is documented."""

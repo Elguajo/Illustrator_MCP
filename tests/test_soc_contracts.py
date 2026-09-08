@@ -1,13 +1,18 @@
 """
 test_soc_contracts.py - Contract integration tests (no Illustrator required).
 
-Ensures consistency across the 4 SOC registry layers:
+Ensures consistency across the SOC registry layers:
   1. contracts.py (Python SSOT)
-  2. op_schemas.json (generated JSX schemas)
+  2. contracts.jsx OP_PARAM_SCHEMAS (compiled from the SSOT)
   3. JSX handler registrations (via source grep — constrained format)
   4. OP_CLASS classification (via source grep)
 
 These tests catch drift without requiring a running Illustrator instance.
+
+Layer 2 used to read a generated op_schemas.json. That file was an orphan —
+test_audit_fixes asserts it must not exist — so both checks against it skipped
+permanently and the drift they were meant to catch went unguarded. They now run
+against contracts.jsx, which is the artefact ExtendScript actually loads.
 """
 
 import json
@@ -17,7 +22,7 @@ from pathlib import Path
 import pytest
 
 SCRIPTS_DIR = Path(__file__).parent.parent / "illustrator_mcp" / "resources" / "scripts"
-JSON_PATH = SCRIPTS_DIR / "op_schemas.json"
+CONTRACTS_JSX_PATH = SCRIPTS_DIR / "contracts.jsx"
 
 # Ops that are Python-only (no JSX handler expected)
 KNOWN_SERVER_SIDE = {"path_boolean"}
@@ -36,12 +41,15 @@ def _get_contract_ops() -> set:
     return {op.name for op in OP_SCHEMAS}
 
 
-def _get_json_schema_ops() -> set:
-    """Get all op names from generated op_schemas.json."""
-    if not JSON_PATH.exists():
-        pytest.skip("op_schemas.json not generated")
-    data = json.loads(JSON_PATH.read_text(encoding="utf-8"))
-    return set(data.keys())
+def _get_jsx_schema_ops() -> set:
+    """Get all op names from the OP_PARAM_SCHEMAS block in contracts.jsx."""
+    content = CONTRACTS_JSX_PATH.read_text(encoding="utf-8")
+    start = content.index("var OP_PARAM_SCHEMAS = {")
+    # The block ends at the first line that closes it at column 0.
+    end = content.index("\n};", start)
+    block = content[start:end]
+    # Op keys sit at a fixed indent of one level inside the object literal.
+    return set(re.findall(r'^    "([a-z_]+)":\s*\{', block, re.MULTILINE))
 
 
 def _get_jsx_registered_ops() -> set:
@@ -67,21 +75,22 @@ def _get_op_class_entries() -> set:
 class TestContractSync:
     """Each contract op should have a corresponding JSX handler (or be server-side)."""
 
-    def test_every_contract_has_json_schema(self):
+    def test_every_contract_has_jsx_schema(self):
         contract_ops = _get_contract_ops()
-        json_ops = _get_json_schema_ops()
-        missing = contract_ops - json_ops - KNOWN_SERVER_SIDE
+        jsx_schema_ops = _get_jsx_schema_ops()
+        missing = contract_ops - jsx_schema_ops - KNOWN_SERVER_SIDE
         assert not missing, (
-            f"Ops in contracts.py but missing from op_schemas.json: {sorted(missing)}\n"
-            "Run: python -m scripts.gen_schemas"
+            f"Ops in contracts.py but missing from contracts.jsx: {sorted(missing)}\n"
+            "Recompile: python -m illustrator_mcp.tools.compile_contracts"
         )
 
-    def test_every_json_schema_has_contract(self):
+    def test_every_jsx_schema_has_contract(self):
         contract_ops = _get_contract_ops()
-        json_ops = _get_json_schema_ops()
-        extra = json_ops - contract_ops
+        jsx_schema_ops = _get_jsx_schema_ops()
+        extra = jsx_schema_ops - contract_ops
         assert not extra, (
-            f"Ops in op_schemas.json but missing from contracts.py: {sorted(extra)}"
+            f"Ops in contracts.jsx but missing from contracts.py: {sorted(extra)}\n"
+            "contracts.jsx is generated; edit contracts.py and recompile."
         )
 
     def test_every_contract_has_jsx_handler(self):
