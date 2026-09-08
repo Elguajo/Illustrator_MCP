@@ -221,6 +221,11 @@
           "title": "Itemsprocessed",
           "type": "integer"
         },
+        "itemsCreated": {
+          "default": 0,
+          "title": "Itemscreated",
+          "type": "integer"
+        },
         "itemsModified": {
           "default": 0,
           "title": "Itemsmodified",
@@ -397,6 +402,15 @@
       ],
       "default": null,
       "description": "Present if retry was attempted"
+    },
+    "resolvedTargets": {
+      "description": "Normalized metadata for resolved ID targets: mcp_id, ItemRef, typename, AI/screen bounds, active artboard, and state",
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Resolvedtargets",
+      "type": "array"
     }
   },
   "required": [

@@ -137,9 +137,11 @@
         },
         "targets": {
             "file": "targets.jsx",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "dependencies": [
-                "polyfills"
+                "polyfills",
+                "mcp_id",
+                "item_ref"
             ],
             "exports": [
                 "sortItems",
@@ -153,7 +155,7 @@
                 "queryItems",
                 "collectTargets"
             ],
-            "description": "Declarative target selection, sorting, and filtering"
+            "description": "Declarative target selection, sorting, filtering, and safe grounded @mcp:id handoff"
         },
         "task_pipeline": {
             "file": "task_pipeline.jsx",

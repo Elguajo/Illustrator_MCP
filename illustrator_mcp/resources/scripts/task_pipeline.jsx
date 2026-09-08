@@ -172,12 +172,67 @@ function validatePayload(payload) {
                 "targets.anyOf is required when type='compound'",
                 "validate"
             ));
-        } else if (target.type === "id" && (!target.ids || target.ids.length === 0)) {
-            errors.push(makeError(
-                ErrorCodes.V_MISSING_REQUIRED_PARAM,
-                "targets.ids is required when type='id'",
-                "validate"
-            ));
+        } else if (target.type === "id") {
+            if (!target.ids || !(target.ids instanceof Array) || target.ids.length === 0) {
+                errors.push(makeError(
+                    ErrorCodes.V_MISSING_REQUIRED_PARAM,
+                    "targets.ids is required when type='id'",
+                    "validate"
+                ));
+            } else {
+                for (var idv = 0; idv < target.ids.length; idv++) {
+                    if (typeof target.ids[idv] !== "string" || !target.ids[idv]) {
+                        errors.push(makeError(
+                            ErrorCodes.V_INVALID_PARAM_TYPE,
+                            "targets.ids must contain non-empty strings",
+                            "validate"
+                        ));
+                        break;
+                    }
+                }
+            }
+
+            // Phase 3 grounded handoff: the precondition is opt-in and
+            // validated here as well as at resolution time.  Runtime checks
+            // compare it with current Illustrator DOM metadata before apply.
+            if (target.precondition !== undefined && target.precondition !== null) {
+                var pc = target.precondition;
+                if (typeof pc !== "object" || pc instanceof Array) {
+                    errors.push(makeError(ErrorCodes.V_INVALID_PARAM_TYPE,
+                        "targets.precondition must be an object", "validate"));
+                } else {
+                    if (pc.type === undefined && pc.bounds_screen === undefined) {
+                        errors.push(makeError(ErrorCodes.V_MISSING_REQUIRED_PARAM,
+                            "targets.precondition requires type and/or bounds_screen", "validate"));
+                    }
+                    if (pc.type !== undefined && (typeof pc.type !== "string" || !pc.type)) {
+                        errors.push(makeError(ErrorCodes.V_INVALID_PARAM_TYPE,
+                            "targets.precondition.type must be a non-empty string", "validate"));
+                    }
+                    if (pc.bounds_screen !== undefined) {
+                        var bs = pc.bounds_screen;
+                        var boundsValid = bs instanceof Array && bs.length === 4;
+                        if (boundsValid) {
+                            for (var bsi = 0; bsi < 4; bsi++) {
+                                if (typeof bs[bsi] !== "number" || !isFinite(bs[bsi])) {
+                                    boundsValid = false;
+                                    break;
+                                }
+                            }
+                            if (boundsValid && (bs[2] < 0 || bs[3] < 0)) boundsValid = false;
+                        }
+                        if (!boundsValid) {
+                            errors.push(makeError(ErrorCodes.V_INVALID_PARAM_TYPE,
+                                "targets.precondition.bounds_screen must be [x, y, width, height] with non-negative size", "validate"));
+                        }
+                    }
+                    if (pc.tolerance_pt !== undefined &&
+                        (typeof pc.tolerance_pt !== "number" || !isFinite(pc.tolerance_pt) || pc.tolerance_pt < 0)) {
+                        errors.push(makeError(ErrorCodes.V_INVALID_PARAM_TYPE,
+                            "targets.precondition.tolerance_pt must be a non-negative number", "validate"));
+                    }
+                }
+            }
         } else if (target.type === "spatial") {
             // Must have at least one non-null predicate
             if (target.within == null && target.outside == null && target.nearTo == null) {
@@ -363,6 +418,13 @@ function executeTask(payload, collectFn, computeFn, applyFn) {
             }
 
             items = collectFn(doc, targetObj);
+            // collectTargets annotates ID-target arrays with the normalized
+            // handoff metadata. Capture it before filtering/sorting returns a
+            // new Array and preserve legacy collector return values unchanged.
+            var resolvedTargetMetadata = items._resolvedTargetMetadata || [];
+            if (resolvedTargetMetadata.length > 0) {
+                report.resolvedTargets = resolvedTargetMetadata;
+            }
 
             // Phase 4 guard: clear selection after resolution to prevent
             // accidental coupling in downstream ops
@@ -404,11 +466,11 @@ function executeTask(payload, collectFn, computeFn, applyFn) {
         } catch (e) {
             report.ok = false;
             report.errors.push(makeError(
-                ErrorCodes.R_COLLECT_FAILED,
+                e.code || ErrorCodes.R_COLLECT_FAILED,
                 e.message,
                 "collect",
-                null,
-                { line: e.line || null }
+                e.itemRef || null,
+                e.meta || { line: e.line || null }
             ));
             var t1_err = new Date().getTime();
             report.timing = { collect_ms: t1_err - t0, compute_ms: 0, apply_ms: 0, total_ms: t1_err - t0 };

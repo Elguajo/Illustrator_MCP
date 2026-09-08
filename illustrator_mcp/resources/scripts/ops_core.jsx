@@ -185,9 +185,10 @@ function validationShapeKey(op) {
 }
 
 // ==================== ID-Based Target Resolution ====================
-// Delegates to heap.jsx for transactional, identity-verified resolution.
-// The heap index ($.global.mcpHeap) persists across batches/chunks.
-// Transaction lifecycle (begin/commit/rollback) is managed in executeOpBatch.
+// Normal operation batches use the transactional heap for their own internal
+// bookkeeping. Grounded ID handoffs are resolved by collectTargets instead:
+// the one-pass document scan is required to prove uniqueness and current
+// visibility/editability before a handler can mutate a PageItem.
 
 /**
  * Extended target resolution with ID support
@@ -209,18 +210,13 @@ function resolveTargets(doc, targets, ctx) {
         }
     }
 
-    // ID-based targeting (stable) - uses heap for identity-verified O(1) resolution
+    // Phase 3 ID handoff. Never cache ID targets: an earlier operation in the
+    // same batch can hide, lock, retag, or replace an item before the next
+    // handler runs, so every ID resolution must inspect current DOM state.
     if (targets.type === "id") {
         var ids = targets.ids || [];
-        var cacheKey = "id:" + ids.join(",");
-        if (ctx.cache[cacheKey]) {
-            ctx.diagnostics.cacheHits++;
-            return ctx.cache[cacheKey];
-        }
         ctx.diagnostics.cacheMisses++;
-        var items = heapResolveMany(doc, ids);
-        ctx.cache[cacheKey] = items;
-        return items;
+        return collectTargets(doc, targets);
     }
 
     // Use existing collectTargets for other types
@@ -635,7 +631,31 @@ function executeSubOps(ops, ctx, mode) {
         }
 
         var handler = OP_HANDLERS[op.task];
-        var targets = op.targets ? resolveTargets(doc, op.targets, ctx) : [];
+        var targets = [];
+        try {
+            targets = op.targets ? resolveTargets(doc, op.targets, ctx) : [];
+        } catch (targetError) {
+            results.push({
+                index: i,
+                task: op.task,
+                ok: false,
+                duration_ms: ctx.clock() - t0,
+                targets_resolved: 0,
+                id: op.params ? op.params.id : null,
+                data: null,
+                warnings: [],
+                error: {
+                    code: targetError.code || ErrorCodes.R_COLLECT_FAILED,
+                    message: targetError.message,
+                    stage: "collect",
+                    itemRef: targetError.itemRef || null,
+                    details: targetError.meta || { line: targetError.line || null }
+                }
+            });
+            failed++;
+            if (strict) break;
+            continue;
+        }
 
         // C2: Guard evaluation — filter targets by when/unless predicates
         var guardSkipped = false;
@@ -694,7 +714,8 @@ function executeSubOps(ops, ctx, mode) {
             id: op.params ? op.params.id : null,
             data: null,
             warnings: [],
-            error: null
+            error: null,
+            resolvedTargets: targets._resolvedTargetMetadata || []
         };
 
         try {
@@ -1155,4 +1176,3 @@ function profileOp(label, fn, clock) {
     var t1 = now();
     return { result: result, duration_ms: t1 - t0, label: label };
 }
-

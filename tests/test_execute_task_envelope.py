@@ -109,6 +109,24 @@ class TestTaskreportFirstError:
         err = _taskreport_first_error(report, "fallback_task")
         assert err["operation"] == "orig_op"
 
+    def test_preserves_grounded_target_details(self):
+        report = {
+            "errors": [{
+                "code": "R001",
+                "message": "Grounded ID target is stale",
+                "itemRef": {"identity": {"itemId": "mcp_badge"}},
+                "details": {
+                    "reason": "precondition_failed",
+                    "expected": {"type": "PathItem"},
+                    "actual": {"typename": "TextFrame"},
+                },
+            }],
+        }
+        err = _taskreport_first_error(report, "style_set_fill")
+        assert err["details"]["reason"] == "precondition_failed"
+        assert err["details"]["actual"]["typename"] == "TextFrame"
+        assert err["itemRef"]["identity"]["itemId"] == "mcp_badge"
+
 
 # ── _dedup_warnings ───────────────────────────────────────────────
 

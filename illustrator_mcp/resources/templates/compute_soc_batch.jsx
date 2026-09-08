@@ -60,6 +60,21 @@ function compute(items, params, report) {
         // itemsSkipped: failed ops
         report.stats.itemsSkipped = result.stats ? result.stats.failed : 0;
 
+        // Phase 3: preserve normalized grounded-ID metadata at the TaskReport
+        // boundary. executeOpBatch keeps it per op; callers of the MCP tool
+        // need one stable place to retrieve the handoff result.
+        var resolvedTargets = [];
+        if (result.ops) {
+            for (var rt = 0; rt < result.ops.length; rt++) {
+                __mcp_check();
+                var opResolved = result.ops[rt].resolvedTargets || [];
+                for (var rti = 0; rti < opResolved.length; rti++) {
+                    resolvedTargets.push(opResolved[rti]);
+                }
+            }
+        }
+        if (resolvedTargets.length > 0) report.resolvedTargets = resolvedTargets;
+
         // Warn when targets were provided but resolved to zero items
         if (result.ops) {
             for (var w = 0; w < result.ops.length; w++) {
@@ -93,4 +108,3 @@ function compute(items, params, report) {
     }
     return [];
 }
-

@@ -73,10 +73,44 @@
       ],
       "title": "RetryableStage",
       "type": "string"
+    },
+    "TaskKind": {
+      "description": "Task kind determines collect behavior.\n\n- SELECTION: Normal collect; empty selection → early-return (default)\n- CREATION: Skip collect; items=[]; compute/apply must handle empty input",
+      "enum": [
+        "selection",
+        "creation"
+      ],
+      "title": "TaskKind",
+      "type": "string"
     }
   },
   "description": "Task execution options.",
   "properties": {
+    "kind": {
+      "$ref": "#/$defs/TaskKind",
+      "default": "selection",
+      "description": "Task kind: 'selection' (collect items) or 'creation' (skip collect, apply creates)"
+    },
+    "skipCollect": {
+      "default": false,
+      "description": "Low-level: skip collect stage explicitly (kind='creation' implies this)",
+      "title": "Skipcollect",
+      "type": "boolean"
+    },
+    "minCreated": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Safety rail: minimum items apply must create (warns if not met)",
+      "title": "Mincreated"
+    },
     "dryRun": {
       "default": false,
       "description": "Preview changes without applying",

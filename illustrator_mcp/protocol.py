@@ -77,8 +77,57 @@ class QueryTarget(BaseModel):
         return self
 
 
+class IdTargetPrecondition(BaseModel):
+    """Optional snapshot assertions for a stable ``@mcp:id`` handoff.
+
+    The checks are evaluated in Illustrator immediately before a task can
+    compute or mutate.  They let a caller reject an ID that still exists but
+    no longer identifies the PageItem selected from an annotated preview.
+    """
+    type: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        description="Expected Illustrator typename, for example 'PathItem'",
+    )
+    bounds_screen: Optional[List[float]] = Field(
+        default=None,
+        min_length=4,
+        max_length=4,
+        description="Expected [x, y, width, height] in active-artboard screen-space points",
+    )
+    tolerance_pt: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Allowed absolute difference for each bounds_screen value, in points",
+    )
+
+    @model_validator(mode="after")
+    def require_expected_metadata(self):
+        if self.type is None and self.bounds_screen is None:
+            raise ValueError("ID target precondition requires type and/or bounds_screen")
+        if self.bounds_screen is not None and (
+            self.bounds_screen[2] < 0 or self.bounds_screen[3] < 0
+        ):
+            raise ValueError("bounds_screen width and height must be non-negative")
+        return self
+
+
+class IdTarget(BaseModel):
+    """Target one or more existing PageItems by stable ``@mcp:id`` values."""
+    type: Literal["id"] = "id"
+    ids: List[str] = Field(
+        ...,
+        min_length=1,
+        description="Stable @mcp:id values assigned to PageItems",
+    )
+    precondition: Optional[IdTargetPrecondition] = Field(
+        default=None,
+        description="Optional expected PageItem snapshot checked before compute/apply",
+    )
+
+
 # Compound selector
-SimpleTarget = Union[SelectionTarget, LayerTarget, AllTarget, QueryTarget]
+SimpleTarget = Union[SelectionTarget, LayerTarget, AllTarget, QueryTarget, IdTarget]
 
 
 class CompoundTarget(BaseModel):
@@ -105,7 +154,7 @@ class TargetSelector(BaseModel):
     The 'orderBy' field ensures deterministic result ordering.
     """
     target: Annotated[
-        Union[SelectionTarget, LayerTarget, AllTarget, QueryTarget, CompoundTarget],
+        Union[SelectionTarget, LayerTarget, AllTarget, QueryTarget, IdTarget, CompoundTarget],
         Field(discriminator='type')
     ]
     orderBy: OrderBy = Field(
@@ -322,13 +371,20 @@ class TaskReport(BaseModel):
         None,
         description="Present if retry was attempted"
     )
+    resolvedTargets: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Normalized metadata for resolved ID targets: mcp_id, ItemRef, "
+            "typename, AI/screen bounds, active artboard, and state"
+        ),
+    )
 
 
 class TaskPayload(BaseModel):
     """Standard task payload."""
     task: str = Field(..., description="Task type: draw_shapes, apply_styles, query_items")
     version: str = Field(default=TASK_PROTOCOL_VERSION, description="Protocol version")
-    targets: Optional[Union[TargetSelector, Dict[str, Any]]] = Field(
+    targets: Optional[Union[TargetSelector, IdTarget, Dict[str, Any]]] = Field(
         default=None,
         description="Target selector (structured or legacy dict)"
     )
@@ -389,4 +445,3 @@ def format_task_report(report: TaskReport, task_name: str) -> str:
             lines.append(f"    {t}")
     
     return "\n".join(lines)
-

@@ -99,13 +99,15 @@ class TestHeapMigrationGuard:
         for fn in ["heapBeginTxn", "heapCommitTxn", "heapRollbackTxn"]:
             assert fn in content, f"{fn} not found in ops_core.jsx"
 
-    def test_ops_core_uses_heap_resolve(self):
-        """ops_core.jsx should use heapResolveMany for ID resolution."""
+    def test_ops_core_uses_safe_id_handoff_resolver(self):
+        """ID handoff must use collectTargets, not a uniqueness-blind heap lookup."""
         ops_core_path = os.path.join(SCRIPTS_DIR, "ops_core.jsx")
         with open(ops_core_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        assert "heapResolveMany" in content, "heapResolveMany not found in ops_core.jsx"
+        assert "return collectTargets(doc, targets);" in content, (
+            "ID targets must use collectTargets for missing/duplicate/state checks"
+        )
 
     def test_element_delete_uses_heap_tombstone(self):
         """element_delete handler should use heapTombstone, not removeFromIdIndex."""

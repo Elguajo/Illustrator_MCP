@@ -42,6 +42,9 @@
               },
               {
                 "$ref": "#/$defs/QueryTarget"
+              },
+              {
+                "$ref": "#/$defs/IdTarget"
               }
             ]
           },
@@ -97,6 +100,89 @@
         }
       },
       "title": "ExcludeFilter",
+      "type": "object"
+    },
+    "IdTarget": {
+      "description": "Target one or more existing PageItems by stable ``@mcp:id`` values.",
+      "properties": {
+        "type": {
+          "const": "id",
+          "default": "id",
+          "title": "Type",
+          "type": "string"
+        },
+        "ids": {
+          "description": "Stable @mcp:id values assigned to PageItems",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Ids",
+          "type": "array"
+        },
+        "precondition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdTargetPrecondition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional expected PageItem snapshot checked before compute/apply"
+        }
+      },
+      "required": [
+        "ids"
+      ],
+      "title": "IdTarget",
+      "type": "object"
+    },
+    "IdTargetPrecondition": {
+      "description": "Optional snapshot assertions for a stable ``@mcp:id`` handoff.\n\nThe checks are evaluated in Illustrator immediately before a task can\ncompute or mutate.  They let a caller reject an ID that still exists but\nno longer identifies the PageItem selected from an annotated preview.",
+      "properties": {
+        "type": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Expected Illustrator typename, for example 'PathItem'",
+          "title": "Type"
+        },
+        "bounds_screen": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Expected [x, y, width, height] in active-artboard screen-space points",
+          "title": "Bounds Screen"
+        },
+        "tolerance_pt": {
+          "default": 0.0,
+          "description": "Allowed absolute difference for each bounds_screen value, in points",
+          "minimum": 0.0,
+          "title": "Tolerance Pt",
+          "type": "number"
+        }
+      },
+      "title": "IdTargetPrecondition",
       "type": "object"
     },
     "LayerTarget": {
@@ -218,6 +304,7 @@
         "mapping": {
           "all": "#/$defs/AllTarget",
           "compound": "#/$defs/CompoundTarget",
+          "id": "#/$defs/IdTarget",
           "layer": "#/$defs/LayerTarget",
           "query": "#/$defs/QueryTarget",
           "selection": "#/$defs/SelectionTarget"
@@ -236,6 +323,9 @@
         },
         {
           "$ref": "#/$defs/QueryTarget"
+        },
+        {
+          "$ref": "#/$defs/IdTarget"
         },
         {
           "$ref": "#/$defs/CompoundTarget"

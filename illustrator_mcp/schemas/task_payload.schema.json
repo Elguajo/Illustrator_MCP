@@ -42,6 +42,9 @@
               },
               {
                 "$ref": "#/$defs/QueryTarget"
+              },
+              {
+                "$ref": "#/$defs/IdTarget"
               }
             ]
           },
@@ -109,6 +112,89 @@
       ],
       "title": "IdPolicy",
       "type": "string"
+    },
+    "IdTarget": {
+      "description": "Target one or more existing PageItems by stable ``@mcp:id`` values.",
+      "properties": {
+        "type": {
+          "const": "id",
+          "default": "id",
+          "title": "Type",
+          "type": "string"
+        },
+        "ids": {
+          "description": "Stable @mcp:id values assigned to PageItems",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Ids",
+          "type": "array"
+        },
+        "precondition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdTargetPrecondition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional expected PageItem snapshot checked before compute/apply"
+        }
+      },
+      "required": [
+        "ids"
+      ],
+      "title": "IdTarget",
+      "type": "object"
+    },
+    "IdTargetPrecondition": {
+      "description": "Optional snapshot assertions for a stable ``@mcp:id`` handoff.\n\nThe checks are evaluated in Illustrator immediately before a task can\ncompute or mutate.  They let a caller reject an ID that still exists but\nno longer identifies the PageItem selected from an annotated preview.",
+      "properties": {
+        "type": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Expected Illustrator typename, for example 'PathItem'",
+          "title": "Type"
+        },
+        "bounds_screen": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 4,
+              "minItems": 4,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Expected [x, y, width, height] in active-artboard screen-space points",
+          "title": "Bounds Screen"
+        },
+        "tolerance_pt": {
+          "default": 0.0,
+          "description": "Allowed absolute difference for each bounds_screen value, in points",
+          "minimum": 0.0,
+          "title": "Tolerance Pt",
+          "type": "number"
+        }
+      },
+      "title": "IdTargetPrecondition",
+      "type": "object"
     },
     "Idempotency": {
       "description": "Idempotency classification for operations.",
@@ -292,6 +378,7 @@
             "mapping": {
               "all": "#/$defs/AllTarget",
               "compound": "#/$defs/CompoundTarget",
+              "id": "#/$defs/IdTarget",
               "layer": "#/$defs/LayerTarget",
               "query": "#/$defs/QueryTarget",
               "selection": "#/$defs/SelectionTarget"
@@ -310,6 +397,9 @@
             },
             {
               "$ref": "#/$defs/QueryTarget"
+            },
+            {
+              "$ref": "#/$defs/IdTarget"
             },
             {
               "$ref": "#/$defs/CompoundTarget"
@@ -341,9 +431,43 @@
       "title": "TargetSelector",
       "type": "object"
     },
+    "TaskKind": {
+      "description": "Task kind determines collect behavior.\n\n- SELECTION: Normal collect; empty selection → early-return (default)\n- CREATION: Skip collect; items=[]; compute/apply must handle empty input",
+      "enum": [
+        "selection",
+        "creation"
+      ],
+      "title": "TaskKind",
+      "type": "string"
+    },
     "TaskOptions": {
       "description": "Task execution options.",
       "properties": {
+        "kind": {
+          "$ref": "#/$defs/TaskKind",
+          "default": "selection",
+          "description": "Task kind: 'selection' (collect items) or 'creation' (skip collect, apply creates)"
+        },
+        "skipCollect": {
+          "default": false,
+          "description": "Low-level: skip collect stage explicitly (kind='creation' implies this)",
+          "title": "Skipcollect",
+          "type": "boolean"
+        },
+        "minCreated": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Safety rail: minimum items apply must create (warns if not met)",
+          "title": "Mincreated"
+        },
         "dryRun": {
           "default": false,
           "description": "Preview changes without applying",
@@ -399,7 +523,7 @@
       "type": "string"
     },
     "version": {
-      "default": "2.3.0",
+      "default": "3.0.0",
       "description": "Protocol version",
       "title": "Version",
       "type": "string"
@@ -408,6 +532,9 @@
       "anyOf": [
         {
           "$ref": "#/$defs/TargetSelector"
+        },
+        {
+          "$ref": "#/$defs/IdTarget"
         },
         {
           "additionalProperties": true,

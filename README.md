@@ -417,6 +417,38 @@ from the preview; locked items remain visible and are identified as
 non-editable. Clipping groups and compound paths are reported as their actual
 Illustrator `typename`.
 
+### Grounded Task Handoff
+
+Use the `mcp_id`, `type`, and `bounds.screen` returned by
+`illustrator_ground_object` as an optional safety precondition for the next
+Task Protocol operation. The current DOM is checked before compute or mutation
+— no repeat Vision grounding is needed.
+
+```python
+illustrator_execute_task(payload={
+  "task": "style_set_fill",
+  "targets": {
+    "type": "id",
+    "ids": ["mcp_1705834200_42"],
+    "precondition": {
+      "type": "PathItem",
+      "bounds_screen": [50, 50, 100, 100],
+      "tolerance_pt": 0.5,
+    },
+  },
+  "params": {"fill": {"r": 0, "g": 90, "b": 180}},
+})
+```
+
+The precondition is opt-in: the existing `{ "type": "id", "ids": [...] }`
+form remains valid. ID resolution now rejects a missing or duplicate ID, and a
+target that is hidden or locked (including by a parent group or layer), before
+it can be modified. A rejected handoff returns structured error details with
+the expected snapshot and actual normalized PageItem metadata. A successful
+Task Protocol report exposes the same metadata in `resolvedTargets`: `mcp_id`,
+`item_ref`, `typename`, visible/geometric Illustrator bounds, screen-space
+bounds, active-artboard metadata, and visibility/editability state.
+
 ### Auto-Grounding
 
 Every `execute_task` (SOC pipeline) call **automatically** includes the annotated overlay in its return. The agent doesn't opt in — it is forcibly handed a visual map of the canvas grounded with `[1]` → `@mcp:id` tags alongside the SOC task report.

@@ -63,6 +63,12 @@ def _taskreport_first_error(report_data: dict, task_name: str) -> dict:
             "suggestions": first.get("suggestions", []),
         }
         out["operation"] = first.get("operation", task_name)
+        # Grounded ID handoff failures include current PageItem metadata here
+        # so clients can compare the rejected target with their snapshot.
+        if first.get("details") is not None:
+            out["details"] = first["details"]
+        if first.get("itemRef") is not None:
+            out["itemRef"] = first["itemRef"]
         return out
 
     # Fallback: classify via create_structured_error
@@ -250,6 +256,9 @@ async def illustrator_execute_task(params: ExecuteTaskInput) -> Union[str, list]
       {type: "query", itemType: "PathItem", pattern: "axis_*"} — pattern match
       {type: "all", recursive: true} — all items in document
       {type: "id", ids: ["A1", "A2"]} — stable MCP ID targeting
+      {type: "id", ids: ["A1"], precondition: {type: "PathItem",
+       bounds_screen: [x, y, width, height], tolerance_pt: 0.5}}
+        — opt-in grounded handoff; checks current DOM before compute/apply
 
     OPTIONS:
       dryRun: true — compute actions without applying
@@ -258,6 +267,8 @@ async def illustrator_execute_task(params: ExecuteTaskInput) -> Union[str, list]
 
     NOTES:
       - All task+params must be wrapped in a 'payload' field
+      - ID targets reject missing/duplicate/hidden/locked PageItems. A failed
+        precondition includes expected and actual metadata in error.details.
       - For boolean ops use illustrator_path_boolean, not execute_task
       - For raw SVG path data use illustrator_path_import_svg
     """

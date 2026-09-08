@@ -456,8 +456,236 @@ function throwStructured(envelope) {
     var err = new Error(envelope.error.message);
     err.code = envelope.error.code;
     err.stage = envelope.error.stage;
+    err.itemRef = envelope.error.itemRef || null;
     err.meta = envelope.error.details || null;
     throw err;
+}
+
+// ==================== Grounded ID Handoff (Phase 3) ====================
+
+/**
+ * Return the effective visibility/editability state of an item, including
+ * parent groups and layers.  This mirrors the state returned by
+ * illustrator_ground_object so an ID can be handed off without re-grounding
+ * through vision.
+ */
+function groundedTargetState(item) {
+    var current = item;
+    var state = {
+        hidden: false,
+        locked: false,
+        layer_hidden: false,
+        layer_locked: false,
+        inside_clipping_group: false,
+        clipping_group: false,
+        clipping_path: false
+    };
+    while (current) {
+        try { if (current.hidden) state.hidden = true; } catch (e) { }
+        try { if (current.locked) state.locked = true; } catch (e) { }
+        try {
+            if (current.typename === "GroupItem" && current.clipped) {
+                state.clipping_group = true;
+                if (current !== item) state.inside_clipping_group = true;
+            }
+        } catch (e) { }
+        try {
+            if (current.typename === "Layer") {
+                if (!current.visible) state.layer_hidden = true;
+                if (current.locked) state.layer_locked = true;
+            }
+        } catch (e) { }
+        try { current = current.parent; } catch (e) { break; }
+        if (current && current.typename === "Document") break;
+    }
+    try { state.clipping_path = !!item.clipping; } catch (e) { }
+    try {
+        if (typeof isInsideClippingMask === "function" && isInsideClippingMask(item)) {
+            state.inside_clipping_group = true;
+        }
+    } catch (e) { }
+    state.visible_in_preview = !(state.hidden || state.layer_hidden);
+    state.editable = !(state.locked || state.layer_locked);
+    return state;
+}
+
+/**
+ * Return the normalized metadata contract for one resolved @mcp:id target.
+ * Bounds use the same active-artboard screen-space convention as previews:
+ * [x, y, width, height], top-left origin, y increasing downward.
+ */
+function describeResolvedIdTarget(doc, item, mcpId) {
+    var artboardIndex = doc.artboards.getActiveArtboardIndex();
+    var artboard = doc.artboards[artboardIndex].artboardRect;
+    var visibleBounds = null;
+    var geometricBounds = null;
+    try { visibleBounds = item.visibleBounds; } catch (e) { }
+    try { geometricBounds = item.geometricBounds; } catch (e) { }
+
+    var screenBounds = null;
+    if (visibleBounds) {
+        screenBounds = [
+            visibleBounds[0] - artboard[0],
+            artboard[1] - visibleBounds[1],
+            visibleBounds[2] - visibleBounds[0],
+            visibleBounds[1] - visibleBounds[3]
+        ];
+    }
+
+    return {
+        mcp_id: mcpId,
+        item_ref: describeItemV2(item, { includeIdentity: true, includeTags: true }),
+        typename: item.typename,
+        name: item.name || "",
+        bounds: {
+            visible_ai: visibleBounds,
+            geometric_ai: geometricBounds,
+            screen: screenBounds,
+            units: "pt"
+        },
+        artboard: {
+            index: artboardIndex,
+            rect_ai: artboard,
+            screen_rect: [0, 0, Math.abs(artboard[2] - artboard[0]), Math.abs(artboard[1] - artboard[3])]
+        },
+        state: groundedTargetState(item)
+    };
+}
+
+function groundedTargetError(code, message, details, itemRef) {
+    throwStructured(makeError(code, message, "collect", itemRef || null, details));
+}
+
+/**
+ * Validate a caller-provided snapshot before the task reaches compute/apply.
+ * The caller may assert typename, bounds, or both.  Bounds tolerance is
+ * deliberately absolute and per-coordinate to match preview measurements.
+ */
+function assertIdTargetPrecondition(metadata, precondition) {
+    if (!precondition) return;
+    var mismatches = [];
+    if (precondition.type !== undefined && metadata.typename !== precondition.type) {
+        mismatches.push({ field: "type", expected: precondition.type, actual: metadata.typename });
+    }
+    if (precondition.bounds_screen !== undefined) {
+        var actualBounds = metadata.bounds.screen;
+        var expectedBounds = precondition.bounds_screen;
+        var tolerance = precondition.tolerance_pt === undefined ? 0 : precondition.tolerance_pt;
+        if (!actualBounds) {
+            mismatches.push({ field: "bounds_screen", expected: expectedBounds, actual: null });
+        } else {
+            for (var bi = 0; bi < 4; bi++) {
+                if (Math.abs(actualBounds[bi] - expectedBounds[bi]) > tolerance) {
+                    mismatches.push({
+                        field: "bounds_screen[" + bi + "]",
+                        expected: expectedBounds[bi],
+                        actual: actualBounds[bi],
+                        tolerance_pt: tolerance
+                    });
+                }
+            }
+        }
+    }
+    if (mismatches.length > 0) {
+        groundedTargetError(
+            ErrorCodes.R_COLLECT_FAILED,
+            "Grounded ID target no longer satisfies its precondition: " + metadata.mcp_id,
+            {
+                reason: "precondition_failed",
+                mcp_id: metadata.mcp_id,
+                expected: precondition,
+                actual: metadata,
+                mismatches: mismatches
+            },
+            metadata.item_ref
+        );
+    }
+}
+
+/**
+ * Resolve ID targets by scanning doc.pageItems once.  Heap lookups remain
+ * useful for internal operation caches, but cannot prove that a user-visible
+ * @mcp:id is unique; this scan deliberately detects duplicates and state
+ * changes before a grounded target reaches a mutation.
+ */
+function resolveGroundedIdTargets(doc, target) {
+    var requestedIds = target.ids || [];
+    var orderedIds = [];
+    var seenIds = {};
+    for (var ri = 0; ri < requestedIds.length; ri++) {
+        var requestedId = requestedIds[ri];
+        if (!seenIds[requestedId]) {
+            seenIds[requestedId] = true;
+            orderedIds.push(requestedId);
+        }
+    }
+
+    var matchesById = {};
+    for (var oi = 0; oi < orderedIds.length; oi++) matchesById[orderedIds[oi]] = [];
+    for (var pi = 0; pi < doc.pageItems.length; pi++) {
+        var pageItem = doc.pageItems[pi];
+        var pageItemId = null;
+        try {
+            pageItemId = (typeof extractMcpId === "function")
+                ? extractMcpId(pageItem.note || "")
+                : null;
+        } catch (e) { }
+        if (pageItemId && matchesById.hasOwnProperty(pageItemId)) {
+            matchesById[pageItemId].push(pageItem);
+        }
+    }
+
+    var resolvedItems = [];
+    var resolvedMetadata = [];
+    for (var mi = 0; mi < orderedIds.length; mi++) {
+        var mcpId = orderedIds[mi];
+        var matches = matchesById[mcpId];
+        if (!matches || matches.length === 0) {
+            groundedTargetError(
+                ErrorCodes.R_ELEMENT_NOT_FOUND,
+                "Grounded ID target was not found: " + mcpId,
+                { reason: "missing_id", mcp_id: mcpId, expected: { mcp_id: mcpId }, actual: null }
+            );
+        }
+
+        var metadata = [];
+        for (var di = 0; di < matches.length; di++) {
+            metadata.push(describeResolvedIdTarget(doc, matches[di], mcpId));
+        }
+        if (matches.length > 1) {
+            groundedTargetError(
+                ErrorCodes.R_COLLECT_FAILED,
+                "Grounded ID target is duplicated: " + mcpId,
+                { reason: "duplicate_id", mcp_id: mcpId, expected: { occurrences: 1 }, actual: metadata }
+            );
+        }
+
+        var resolved = metadata[0];
+        if (!resolved.state.visible_in_preview) {
+            groundedTargetError(
+                ErrorCodes.R_COLLECT_FAILED,
+                "Grounded ID target is hidden: " + mcpId,
+                { reason: "hidden_target", mcp_id: mcpId, expected: { visible_in_preview: true }, actual: resolved },
+                resolved.item_ref
+            );
+        }
+        if (!resolved.state.editable) {
+            groundedTargetError(
+                ErrorCodes.R_COLLECT_FAILED,
+                "Grounded ID target is locked: " + mcpId,
+                { reason: "locked_target", mcp_id: mcpId, expected: { editable: true }, actual: resolved },
+                resolved.item_ref
+            );
+        }
+        assertIdTargetPrecondition(resolved, target.precondition);
+        resolvedItems.push(matches[0]);
+        resolvedMetadata.push(resolved);
+    }
+    // Keep metadata with the resolved array without changing the legacy
+    // collectTargets return type.  task_pipeline and ops_core copy it to
+    // their public reports before filtering/sorting can create a new array.
+    resolvedItems._resolvedTargetMetadata = resolvedMetadata;
+    return resolvedItems;
 }
 
 /**
@@ -493,36 +721,7 @@ function collectTargets(doc, target) {
         items = queryItems(doc, target);
     }
     else if (type === "id") {
-        // ID-based targeting: stable O(1) resolution
-        var ids = target.ids || [];
-        if (ids.length === 0) return items;
-
-        // Prefer heap (Phase 2+) for identity-verified resolution
-        if (typeof heapResolveMany === "function") {
-            items = heapResolveMany(doc, ids);
-            // If no txn active and nothing found, try one explicit rebuild
-            if (items.length === 0 && ids.length > 0 && typeof heapRebuildIndex === "function") {
-                heapRebuildIndex(doc);
-                items = heapResolveMany(doc, ids);
-            }
-        }
-        // Last resort: full document scan
-        else {
-            var allItems = [];
-            for (var k = 0; k < doc.layers.length; k++) {
-                allItems = allItems.concat(collectLayerItems(doc.layers[k], true));
-            }
-            for (var m = 0; m < allItems.length; m++) {
-                try {
-                    if (allItems[m].note) {
-                        var match = allItems[m].note.match(/@mcp:id=([^\s@]+)/);
-                        if (match && ids.indexOf(match[1]) >= 0) {
-                            items.push(allItems[m]);
-                        }
-                    }
-                } catch (e) { /* some items may not support .note */ }
-            }
-        }
+        items = resolveGroundedIdTargets(doc, target);
     }
     else if (type === "spatial") {
         // C3: Spatial query targets
@@ -716,4 +915,3 @@ function collectTargets(doc, target) {
 
     return items;
 }
-

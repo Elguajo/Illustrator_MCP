@@ -7,6 +7,7 @@ Complete reference documentation for the Illustrator MCP Task Protocol.
 - [Protocol Overview](#protocol-overview)
 - [Error Codes](#error-codes)
 - [Target Selectors](#target-selectors)
+- [Grounded ID Handoff](#grounded-id-handoff)
 - [Stable References](#stable-references)
 - [Retry Semantics](#retry-semantics)
 - [Payload Structure](#payload-structure)
@@ -130,6 +131,58 @@ The Task Protocol provides a structured approach to executing Illustrator operat
   target: {type: "selection"},
   orderBy: "reading",  // Deterministic ordering
   exclude: {locked: true, hidden: true}
+}
+```
+
+### Grounded ID Handoff
+
+`illustrator_ground_object` returns a stable `mcp_id` and a normalized
+snapshot of the selected PageItem. Pass that ID directly to a subsequent Task
+Protocol operation; no second visual grounding pass is required.
+
+```javascript
+{
+  type: "id",
+  ids: ["mcp_1705834200_42"],
+  precondition: {
+    type: "PathItem",
+    bounds_screen: [50, 50, 100, 100],
+    tolerance_pt: 0.5
+  }
+}
+```
+
+`precondition` is optional. The legacy form remains fully supported:
+
+```javascript
+{type: "id", ids: ["mcp_1705834200_42"]}
+```
+
+When present, `type` and/or `bounds_screen` are compared to the current DOM
+at collect time, before compute and apply. `bounds_screen` is `[x, y, width,
+height]` in points relative to the active artboard's top-left corner with Y
+increasing downward; `tolerance_pt` is an absolute per-value bound and
+defaults to `0`. The same contract is applied to an ID target inside an SOC
+batch operation.
+
+ID handoff resolution scans the current document deterministically. Missing
+IDs (`R008`), duplicate IDs, hidden PageItems/hidden ancestors, and locked
+PageItems/locked ancestors fail before mutation. Duplicate, hidden, locked,
+and stale-precondition failures use `R001` with `error.details.reason` set to
+`duplicate_id`, `hidden_target`, `locked_target`, or
+`precondition_failed`. These errors include expected metadata and the current
+normalized PageItem metadata (`actual`) for correction without a Vision pass.
+
+Successful reports include `resolvedTargets`, one entry per unique requested ID:
+
+```javascript
+{
+  mcp_id: "mcp_1705834200_42",
+  item_ref: {locator: {}, identity: {}, tags: {}, itemType: "PathItem"},
+  typename: "PathItem",
+  bounds: {visible_ai: [/* L, T, R, B */], geometric_ai: [/* ... */], screen: [50, 50, 100, 100], units: "pt"},
+  artboard: {index: 0, rect_ai: [/* L, T, R, B */], screen_rect: [0, 0, 800, 600]},
+  state: {visible_in_preview: true, editable: true}
 }
 ```
 
