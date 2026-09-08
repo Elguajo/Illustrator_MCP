@@ -6,6 +6,8 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets AI assistants like Claude control Adobe Illustrator through natural language. Write ExtendScript via a single powerful tool, or use purpose-built tools for document I/O, state inspection, and structured queries.
 
+Forked from [jinkeda/Illustrator_MCP](https://github.com/jinkeda/Illustrator_MCP). This fork adds bridge authentication, CI, and the hardening work in `CHANGELOG.md`.
+
 ---
 
 ## Table of Contents
