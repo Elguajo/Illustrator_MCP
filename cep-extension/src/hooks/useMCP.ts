@@ -53,6 +53,9 @@ export function useMCP() {
     const isExecuting = useRef(false);
     const activeRequestId = useRef<number | null>(null);
     const connectedAt = useRef(0);
+    // Set only by disconnect() / unmount. Everything else — including the
+    // server's graceful close(1000) on MCP restart — must reconnect.
+    const manualDisconnect = useRef(false);
 
     // Initialize CSInterface
     useEffect(() => {
@@ -95,6 +98,7 @@ export function useMCP() {
     const connect = useCallback(() => {
         if (ws.current?.readyState === WebSocket.OPEN) return;
 
+        manualDisconnect.current = false;
         setStatus('connecting');
         addLog('Connecting to 127.0.0.1:8081...', 'info');
 
@@ -110,8 +114,11 @@ export function useMCP() {
                     window.clearTimeout(reconnectTimeout.current);
                     reconnectTimeout.current = null;
                 }
-                // Start heartbeat
-                heartbeatTimer.current = window.setInterval(() => {
+                // Heartbeat. setInterval only fires after the first period,
+                // which left the bridge unable to tell a healthy freshly
+                // connected panel from a dead one for HEARTBEAT_MS. Send one
+                // immediately, then keep the interval going.
+                const sendHeartbeat = () => {
                     if (socket.readyState === WebSocket.OPEN) {
                         socket.send(JSON.stringify({
                             type: 'heartbeat',
@@ -120,7 +127,9 @@ export function useMCP() {
                             uptimeMs: Date.now() - connectedAt.current,
                         }));
                     }
-                }, HEARTBEAT_MS);
+                };
+                sendHeartbeat();
+                heartbeatTimer.current = window.setInterval(sendHeartbeat, HEARTBEAT_MS);
             };
 
             socket.onmessage = (event) => {
@@ -264,11 +273,15 @@ export function useMCP() {
                 }
                 isExecuting.current = false;
                 activeRequestId.current = null;
-                if (event.code !== 1000) { // Normal closure
+                // Reconnect on ANY server-side close. Keying this off
+                // code !== 1000 meant a graceful MCP server shutdown (which
+                // closes with 1000) left the panel dead until it was manually
+                // reopened — every server restart silently bricked it.
+                if (manualDisconnect.current) {
+                    addLog('Disconnected', 'info');
+                } else {
                     addLog(`Disconnected (code: ${event.code}). Retrying...`, 'warning');
                     reconnectTimeout.current = window.setTimeout(connect, 3000);
-                } else {
-                    addLog('Disconnected', 'info');
                 }
             };
 
@@ -284,6 +297,7 @@ export function useMCP() {
     }, [addLog]);
 
     const disconnect = useCallback(() => {
+        manualDisconnect.current = true;
         if (heartbeatTimer.current) {
             window.clearInterval(heartbeatTimer.current);
             heartbeatTimer.current = null;
