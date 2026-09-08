@@ -52,6 +52,31 @@ MCP Server Process
 
 Both threads coordinate via `run_in_executor()` / `run_coroutine_threadsafe()`. No separate proxy or Node.js process is required.
 
+### Bridge Authentication
+
+The bridge executes arbitrary ExtendScript, and ExtendScript can read and write
+the filesystem. Loopback is not a trust boundary: any local process can reach
+`127.0.0.1`, and a WebSocket handshake is **not** covered by the same-origin
+policy, so a page in an open browser tab can connect to a localhost port with no
+CORS check in the way.
+
+So the panel proves it is a local process that can read your home directory:
+
+1. On startup the server generates a random secret and writes it, with the port,
+   to `~/.illustrator-mcp/session.json` (mode `0600`, atomic replace).
+2. The panel reads that file through Node and offers the secret as the WebSocket
+   subprotocol `mcp.token.<secret>`.
+3. The server rejects any handshake without the matching secret (HTTP 401), and
+   any handshake carrying an `http(s)` `Origin` even with a valid secret (HTTP 403).
+
+A remote page can open the socket but cannot read the file, so it cannot complete
+the handshake. The file is removed when the bridge stops; a fresh secret is issued
+on every start.
+
+Because the port also comes from that file, the panel follows a custom `WS_PORT`
+with no rebuild. If the file is missing the panel reports *MCP server not running*
+and keeps retrying.
+
 ### Two-Contract Data Model
 
 All data between layers follows two strict envelope contracts:
@@ -730,7 +755,22 @@ lsof -i :8081        # macOS/Linux
 netstat -ano | findstr 8081  # Windows
 ```
 
-If occupied, change `WS_PORT` in `.env` and restart.
+If occupied, change `WS_PORT` in `.env` and restart. The panel picks the new
+port up from the handshake file — no rebuild needed.
+
+### Panel Will Not Authenticate
+
+The panel log shows the reason:
+
+| Panel message | Meaning | Fix |
+|---|---|---|
+| `MCP server not running (no handshake file)` | No MCP client has started the server | Start Claude Code / Codex in the project, or check the client's MCP registration |
+| `Handshake file unusable` | `~/.illustrator-mcp/session.json` is malformed or unreadable | Delete it and restart the MCP server |
+| `Panel cannot read the handshake file` | Node is unavailable in the panel | Confirm `--enable-nodejs` in `cep-extension/CSXS/manifest.xml`, then reinstall and restart Illustrator |
+
+Server-side, a rejected handshake is logged as `Connection rejected: missing or
+invalid handshake token` (HTTP 401) or `web origin ... may not drive Illustrator`
+(HTTP 403). A stale panel build that predates authentication produces the 401.
 
 ### Script Errors
 

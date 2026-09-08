@@ -42,7 +42,7 @@ function groupLogs(logs: Array<{ id: string; timestamp: string; message: string;
 }
 
 export function MCPControlPanel() {
-  const { status, logs, connect, disconnect } = useMCP();
+  const { status, endpoint, logs, connect, disconnect } = useMCP();
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevStatus = useRef(status);
   const [flash, setFlash] = useState(false);
@@ -234,7 +234,7 @@ export function MCPControlPanel() {
         color: COLORS.textMuted,
         fontFamily: '"SF Mono", Menlo, monospace',
       }}>
-        <span>ws://127.0.0.1:8081</span>
+        <span>{endpoint ?? 'no MCP server'}</span>
         <span>v1.0.1</span>
       </footer>
 

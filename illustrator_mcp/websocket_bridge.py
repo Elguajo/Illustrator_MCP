@@ -23,6 +23,11 @@ from illustrator_mcp.errors import ErrorCode, format_code
 from illustrator_mcp.connection_helpers import create_connection_error
 from illustrator_mcp.bridge.server import WebSocketServer
 from illustrator_mcp.bridge.request_registry import RequestRegistry
+from illustrator_mcp.bridge.session import (
+    generate_token,
+    remove_session_file,
+    write_session_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +67,16 @@ class WebSocketBridge:
         self.state = ConnectionState.DISCONNECTED
         self._state_lock = threading.Lock()
         
+        # Handshake secret for this process. Published to a 0600 file at
+        # start() so the local panel can read it; a remote page cannot.
+        self.token = generate_token()
+
         # Initialize server (will be run in loop)
         self.server = WebSocketServer(
             port=self.port,
             on_message=self._handle_message,
-            on_disconnect=self._handle_disconnect
+            on_disconnect=self._handle_disconnect,
+            token=self.token
         )
 
         # E1: Panel health watchdog
@@ -210,6 +220,13 @@ class WebSocketBridge:
             self._transition(ConnectionState.ERROR, f"Server error: {err}")
         else:
             logger.info("WebSocket bridge thread started successfully")
+            # Publish only now: a session file pointing at a port nothing
+            # listens on would send the panel into a silent retry loop.
+            if write_session_file(self.port, self.token) is None:
+                logger.error(
+                    "Handshake file unavailable — the CEP panel cannot authenticate. "
+                    "Check permissions on ~/.illustrator-mcp/"
+                )
             self._transition(ConnectionState.LISTENING, "Server started")
             self._ready.set()
 
@@ -239,6 +256,10 @@ class WebSocketBridge:
             if self._thread.is_alive():
                 logger.warning("WebSocket bridge thread did not exit cleanly")
         
+        # A stale file would point the panel at a dead port with a secret
+        # that no longer authenticates anything.
+        remove_session_file()
+
         # SHUTTING_DOWN → DISCONNECTED (SHUTTING_DOWN set by _thread_main.finally)
         self._transition(ConnectionState.DISCONNECTED, "Bridge stopped")
 

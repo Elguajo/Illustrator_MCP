@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { readBridgeSession, describeSessionError } from '../session';
 
 // ExtendScript types
 interface CSInterface {
@@ -42,6 +43,8 @@ interface CompleteResponse {
 
 export function useMCP() {
     const [status, setStatus] = useState<ConnectionStatus>('disconnected');
+    // Shown in the footer. Null until the handshake file names a port.
+    const [endpoint, setEndpoint] = useState<string | null>(null);
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const ws = useRef<WebSocket | null>(null);
     const reconnectTimeout = useRef<number | null>(null);
@@ -100,10 +103,27 @@ export function useMCP() {
 
         manualDisconnect.current = false;
         setStatus('connecting');
-        addLog('Connecting to 127.0.0.1:8081...', 'info');
+
+        // Port and secret both come from the server's handshake file, so the
+        // panel follows a non-default WS_PORT instead of hardcoding one.
+        const found = readBridgeSession();
+        if (!found.session) {
+            setStatus('disconnected');
+            addLog(describeSessionError(found), found.error === 'not-found' ? 'info' : 'error');
+            // A missing file is the normal state while the server is down;
+            // keep retrying on the same cadence as a dropped socket.
+            if (!manualDisconnect.current) {
+                reconnectTimeout.current = window.setTimeout(connect, 3000);
+            }
+            return;
+        }
+
+        const { port, subprotocol } = found.session;
+        setEndpoint(`ws://127.0.0.1:${port}`);
+        addLog(`Connecting to 127.0.0.1:${port}...`, 'info');
 
         try {
-            const socket = new WebSocket('ws://127.0.0.1:8081');
+            const socket = new WebSocket(`ws://127.0.0.1:${port}`, subprotocol);
             ws.current = socket;
 
             socket.onopen = () => {
@@ -322,6 +342,7 @@ export function useMCP() {
 
     return {
         status,
+        endpoint,
         logs,
         connect,
         disconnect,
