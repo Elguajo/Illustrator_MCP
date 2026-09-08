@@ -15,6 +15,8 @@ from illustrator_mcp.proxy_client import execute_script_with_context, format_env
 from illustrator_mcp.libraries import get_injection_metadata
 from illustrator_mcp.errors import ErrorCode, make_envelope
 from illustrator_mcp.tools.base import ToolInputBase, TOOL_ANNOTATIONS
+from illustrator_mcp.tools.task_execution import _taskreport_first_error
+from illustrator_mcp.utils.response import unwrap_jsx_result
 
 logger = logging.getLogger("illustrator_mcp")
 
@@ -213,47 +215,28 @@ if (typeof executeTask !== "function" || typeof validatePayload !== "function") 
             else:
                 warnings.append(str(w))
 
-        # Check for errors in report
-        # makeError() returns {ok:false, error:{code, message, ...}} — unwrap nested shape
-        errors = report.get("errors", [])
-        if errors:
-            err = errors[0]
-            # Handle both flat {code, message} and nested {ok, error:{code, message}} shapes
-            if isinstance(err, dict) and "error" in err and isinstance(err["error"], dict):
-                err = err["error"]
-            error_msg = err.get("message", "Unknown error") if err else "Query failed"
-            error_code = err.get("code", ErrorCode.R_QUERY_FAILED.value) if err else ErrorCode.R_QUERY_FAILED.value
-            return make_envelope(
-                ok=False,
-                error={"code": error_code, "message": error_msg},
-                warnings=warnings,
-                diagnostics={**diagnostics, "report": report},
-            )
-
-        # ok is authoritative: reflect report status in envelope
-        if report.get("ok", True):
+        # ok is authoritative: reflect report status in envelope. Error
+        # extraction is shared with execute_task's _taskreport_first_error —
+        # it unwraps makeError()'s nested {ok, error:{...}} shape and, unlike
+        # this tool's previous inline duplicate of that logic, actually
+        # preserves `suggestions` (the duplicate silently dropped it; a
+        # second "fallback" branch that did keep suggestions could never
+        # run, because it only executed when `errors` was already empty).
+        if report.get("ok", True) and not report.get("errors"):
             return make_envelope(
                 ok=True,
                 result=report,
                 warnings=warnings,
                 diagnostics=diagnostics,
             )
-        else:
-            # Option B: extract error from report, key stats in diagnostics
-            report_errors = report.get("errors", [])
-            first_err = report_errors[0] if report_errors else {}
-            if isinstance(first_err, dict) and "error" in first_err and isinstance(first_err["error"], dict):
-                first_err = first_err["error"]
-            return make_envelope(
-                ok=False,
-                error={
-                    "code": first_err.get("code", ErrorCode.R_QUERY_FAILED.value),
-                    "message": first_err.get("message", "Query returned failure"),
-                    "suggestions": first_err.get("suggestions", []),
-                },
-                warnings=warnings,
-                diagnostics={**diagnostics, "stats": report.get("stats", {})},
-            )
+
+        err = _taskreport_first_error(report, "query_items")
+        return make_envelope(
+            ok=False,
+            error=err,
+            warnings=warnings,
+            diagnostics={**diagnostics, "stats": report.get("stats", {})},
+        )
 
     except json.JSONDecodeError as e:
         return make_envelope(
@@ -539,17 +522,17 @@ async def illustrator_preflight_check(params: PreflightCheckInput) -> str:
         if response.get("error"):
             return format_envelope(response, context="preflight_check", diagnostics=diagnostics)
 
-        # Parse result - CEP returns {"success": bool, "result": "JSON string"}
-        cep_result = response.get("result", {})
-        if isinstance(cep_result, str):
-            cep_result = json.loads(cep_result)
-
-        # Extract the inner result (preflight data as JSON string)
-        inner_result = cep_result.get("result", "{}")
-        if isinstance(inner_result, str):
-            preflight_data = json.loads(inner_result)
-        else:
-            preflight_data = inner_result
+        # Unwrap the CEP envelope. host.jsx's executeScript() wraps a bare
+        # return value as {ok: true, data: <value>} — NOT {success, result}.
+        # This tool used to look for a "result" key inside that envelope,
+        # which never exists there, so preflight_data was always {}: every
+        # call silently reported ok=true with no checks, no issues, nothing —
+        # confirmed live against a document with a real off-artboard item and
+        # a real empty text frame, both invisible to the old code.
+        # unwrap_jsx_result is the shared, already-tested helper for this
+        # (also used by execute.py); it also isn't fooled by the *outer*
+        # response envelope also legitimately containing a "result" key.
+        preflight_data = unwrap_jsx_result(response, context="preflight_check")
 
         # Build warnings from issues
         warnings = []
@@ -557,12 +540,23 @@ async def illustrator_preflight_check(params: PreflightCheckInput) -> str:
             if issue.get("severity") != "info":
                 warnings.append(issue.get("message", "Unknown issue"))
 
-        # Determine ok status: ok if no non-info issues
-        non_info_issues = [i for i in preflight_data.get("issues", []) if i.get("severity") != "info"]
-        is_ok = len(non_info_issues) == 0
-
+        # This is a read-only diagnostic: ok reflects whether the check ran,
+        # not whether the document is issue-free — matching this tool's own
+        # documented contract ("Returns ok=true if all checks pass, with
+        # warnings for issues found"). Issues are surfaced via `warnings`
+        # (above) and in full via `result`.
+        #
+        # ok=False used to be computed from issue severity instead, which
+        # made make_envelope discard `result` entirely — its contract is
+        # `result if ok else None` — and no `error` was supplied to
+        # compensate, so a real finding produced {ok:false, error:null,
+        # result:null}. That path was never actually exercised in
+        # production: it was fed by the same unwrap bug fixed above, which
+        # made preflight_data always {}, so `issues` was always [] and
+        # is_ok was always True. Fixing the unwrap alone would have newly
+        # exposed this dropped-payload envelope on every real finding.
         return make_envelope(
-            ok=is_ok,
+            ok=True,
             result=preflight_data,
             warnings=warnings,
             diagnostics=diagnostics,

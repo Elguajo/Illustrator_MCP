@@ -7,6 +7,34 @@ History before 3.1.0 was not tracked here; see `git log` for it.
 
 ## [Unreleased]
 
+### Fixed
+
+- `illustrator_preflight_check` is fixed after being completely non-functional:
+  it always returned `ok: true, result: {}` regardless of document state,
+  confirmed live against a document with a real off-artboard item and a real
+  empty text frame — neither was reported. host.jsx's `executeScript()` wraps a
+  bare script return as `{ok: true, data: <value>}`; the Python side looked for
+  a `result` key inside that envelope, which never exists there. Fixed by
+  reusing `unwrap_jsx_result`, the shared helper `execute.py` already used
+  correctly for the same envelope shape.
+
+  Fixing that alone would have newly exposed a second, previously-dormant
+  defect: `ok` was computed from issue severity, and `make_envelope`'s contract
+  drops `result` whenever `ok` is `False` — with no `error` supplied to
+  compensate, a real finding would have produced `{ok:false, error:null,
+  result:null}`, discarding the very data the tool exists to report. That path
+  was never reachable in production because the unwrap bug always fed it `{}`.
+  `ok` now reflects whether the check ran, matching the tool's own documented
+  contract; findings surface through `warnings` and the full `result` payload.
+
+- `illustrator_query_items` silently dropped `error.suggestions` on every
+  reported failure. The reachable error branch built `{code, message}` with no
+  suggestions key; a second branch that did preserve suggestions could never
+  run, because it only executed when the error list was already empty. Fixed
+  by reusing `_taskreport_first_error`, the canonical extractor `execute_task`
+  already uses for the same `makeError()` shape.
+
+
 ### Security
 
 - **The CEP bridge now authenticates its handshake.** It previously accepted any
