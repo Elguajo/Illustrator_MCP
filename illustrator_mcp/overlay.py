@@ -205,11 +205,23 @@ def _place_pill(
         if _in_bounds(rect, img_w, img_h) and not any(_rects_overlap(rect, p) for p in placed):
             return rect
 
-    # All collide or out-of-bounds — pick smallest-overlap candidate
-    # (prefer in-bounds candidates)
+    # All candidates collide — pick the one that overlaps least.
     in_bounds = [c for c in candidates if _in_bounds(c, img_w, img_h)]
-    pool = in_bounds if in_bounds else candidates
-    return min(pool, key=lambda c: _overlap_area(c, placed))
+    if in_bounds:
+        return min(in_bounds, key=lambda c: _overlap_area(c, placed))
+
+    # Nothing fits as offered: the item hugs a canvas edge, so every candidate
+    # position hangs over it. Returning one unchanged draws a pill that the
+    # image crops in half, and a half-rendered label is unreadable to the model
+    # that has to ground [N] back to a PageItem. Slide it inside instead.
+    clamped = []
+    max_l = max(0, img_w - pill_w)
+    max_t = max(0, img_h - pill_h)
+    for left, top, _r, _b in candidates:
+        cl = min(max(left, 0), max_l)
+        ct = min(max(top, 0), max_t)
+        clamped.append((cl, ct, cl + pill_w, ct + pill_h))
+    return min(clamped, key=lambda c: _overlap_area(c, placed))
 
 
 def _nearest_corner(
@@ -297,20 +309,30 @@ def composite_overlay(
 
         placed_pills: List[Tuple[int, int, int, int]] = []
 
+        # Two passes. Boxes are drawn first, labels afterwards, because a box
+        # outline — and especially its translucent fill — is drawn over
+        # whatever is already on the canvas. In a single pass each annotation
+        # painted over the labels of the ones before it, so a large item late
+        # in the list (a chart background, a panel) veiled the numbers on top
+        # of it. A half-veiled [N] is exactly what a multimodal client cannot
+        # ground back to a PageItem.
+        boxes = []
+
+        # Pass 1 — bounding boxes and cover tints.
         for ann in annotations:
             l, t, r, b = ann["bounds_px"]
             label_text = f"[{ann['label']}]"
 
-            # 1. Pick contrast-adaptive outline color
+            # Pick contrast-adaptive outline color
             outline_color = _pick_contrast_color(thumb, [l, t, r, b], (img_w, img_h), thumb_size)
             fill_color = (*outline_color[:3], FILL_ALPHA)
 
-            # 2. Draw bounding box outline
+            # Draw bounding box outline
             box_area = max(0, r - l) * max(0, b - t)
             fill = fill_color if box_area >= MIN_FILL_AREA_PX else None
             draw.rectangle([l, t, r, b], outline=outline_color, fill=fill, width=outline_width)
 
-            # 2b. Cover-ratio tint: red overlay for items covering >90% of artboard
+            # Cover-ratio tint: red overlay for items covering >90% of artboard
             cover = ann.get("coverRatio")
             if cover is not None and cover > 0.90 and box_area >= MIN_FILL_AREA_PX:
                 tw = max(1, r - l)
@@ -318,17 +340,21 @@ def composite_overlay(
                 tint = Image.new("RGBA", (tw, th), (255, 0, 0, 50))
                 overlay.paste(tint, (l, t), tint)
 
-            # 3. Measure label text
+            boxes.append((l, t, r, b, outline_color, label_text))
+
+        # Pass 2 — labels, so nothing is drawn over them.
+        for l, t, r, b, outline_color, label_text in boxes:
+            # Measure label text
             text_w, text_h = _measure_text(font, label_text)
 
-            # 4. Place pill (deterministic, anti-overlap)
+            # Place pill (deterministic, anti-overlap)
             pad = 4
             pill_w = text_w + pad * 2
             pill_h = text_h + pad * 2
             pill_rect = _place_pill(l, t, r, b, pill_w, pill_h, img_w, img_h, placed_pills)
             placed_pills.append(pill_rect)
 
-            # 5. Leader line if displaced >10px from box corner
+            # Leader line if displaced >10px from box corner
             pill_cx = (pill_rect[0] + pill_rect[2]) // 2
             pill_cy = (pill_rect[1] + pill_rect[3]) // 2
             # Distance from pill center to nearest box corner
@@ -340,7 +366,7 @@ def composite_overlay(
                 corner = _nearest_corner(l, t, r, b, pill_cx, pill_cy)
                 draw.line([corner, (pill_cx, pill_cy)], fill=outline_color, width=1)
 
-            # 6. Draw pill background + text with halo
+            # Draw pill background + text with halo
             # Use rounded rectangle if available (Pillow 8.2+)
             if hasattr(draw, "rounded_rectangle"):
                 draw.rounded_rectangle(list(pill_rect), radius=3, fill=LABEL_BG_COLOR)

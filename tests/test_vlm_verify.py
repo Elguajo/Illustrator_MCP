@@ -1,10 +1,14 @@
-"""Live verification: filter + visual refinements on 59-item dashboard.
+"""Verification: filter + annotated overlay on a 59-item dashboard.
 
-Requires a fixture PNG at a local temp path that only exists after a live
-stress-test run.  The filter-only assertions are always exercised; the
-composite overlay portion is skipped when the fixture is absent.
+The overlay half of this file used to require a PNG at
+C:\\Users\\k.jin\\AppData\\Local\\Temp\\vlm_stress_base.png — a path on the
+original author's machine, produced by a live stress run. It never existed
+anywhere else, so the annotated-preview pipeline (the core of the VLM QA loop)
+was silently untested on every other machine.
+
+The fixture is now rendered with Pillow, which is already a runtime dependency,
+so the whole file runs everywhere.
 """
-import os
 import pytest
 from illustrator_mcp.overlay import composite_overlay, map_bounds_to_pixels, get_png_dimensions
 from illustrator_mcp.tools.execute import _filter_items
@@ -42,35 +46,84 @@ class TestFilterItems:
                 assert it["name"] in kept_names, f"TextFrame '{it['name']}' was filtered"
 
 
-def _fixture_is_valid():
-    """Check fixture PNG exists AND is decodable."""
-    if not os.path.exists(_FIXTURE_PNG):
-        return False
-    try:
-        with open(_FIXTURE_PNG, "rb") as f:
-            return get_png_dimensions(f.read()) is not None
-    except Exception:
-        return False
+@pytest.fixture(scope="module")
+def base_png() -> bytes:
+    """A blank artboard-sized PNG standing in for an exported preview.
+
+    Only the dimensions matter: the overlay maps item bounds onto pixels, so a
+    real render would exercise the same code path with the same geometry.
+    """
+    from io import BytesIO
+    from PIL import Image
+
+    artboard = DATA["artboard"]
+    width = int(abs(artboard[2] - artboard[0]))
+    height = int(abs(artboard[3] - artboard[1]))
+    buffer = BytesIO()
+    Image.new("RGB", (width, height), (255, 255, 255)).save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
-@pytest.mark.skipif(
-    not _fixture_is_valid(),
-    reason=f"Fixture PNG missing or invalid: {_FIXTURE_PNG}"
-)
 class TestCompositeOverlay:
-    """Overlay tests that require the live stress-test fixture PNG."""
+    """The annotated preview the VLM QA cadence depends on."""
 
-    def test_annotated_overlay(self):
-        with open(_FIXTURE_PNG, "rb") as f:
-            raw_png = f.read()
-        dims = get_png_dimensions(raw_png)
-        assert dims is not None, "Could not decode PNG dimensions"
+    def test_fixture_dimensions_match_artboard(self, base_png):
+        assert get_png_dimensions(base_png) == (1200, 800)
 
+    def test_annotated_overlay_returns_a_valid_png(self, base_png):
+        dims = get_png_dimensions(base_png)
         kept, _ = _filter_items(DATA["items"], DATA["artboard"])
+
         annotations = []
         for i, item in enumerate(kept):
             bounds_px = map_bounds_to_pixels(item["bounds"], DATA["artboard"], dims)
             annotations.append({"label": str(i + 1), "bounds_px": bounds_px})
 
-        annotated = composite_overlay(raw_png, annotations)
-        assert len(annotated) > 0
+        annotated = composite_overlay(base_png, annotations)
+
+        assert annotated[:8] == b"\x89PNG\r\n\x1a\n", "output is not a PNG"
+        assert get_png_dimensions(annotated) == dims, "overlay resized the preview"
+        assert annotated != base_png, "overlay produced an unchanged image"
+
+    def test_overlay_actually_draws_something(self, base_png):
+        """A blank page in, a marked-up page out — pixels must change."""
+        from io import BytesIO
+        from PIL import Image
+
+        dims = get_png_dimensions(base_png)
+        kept, _ = _filter_items(DATA["items"], DATA["artboard"])
+        annotations = [
+            {"label": str(i + 1),
+             "bounds_px": map_bounds_to_pixels(item["bounds"], DATA["artboard"], dims)}
+            for i, item in enumerate(kept)
+        ]
+
+        annotated = composite_overlay(base_png, annotations)
+        rendered = Image.open(BytesIO(annotated)).convert("RGB")
+        colors = rendered.getcolors(maxcolors=1_000_000) or []
+        non_white = sum(count for count, color in colors if color != (255, 255, 255))
+
+        assert non_white > 0, "overlay drew nothing onto the preview"
+
+    def test_every_kept_item_is_labelled(self, base_png):
+        """Labels are what a multimodal client grounds against; none may be dropped."""
+        dims = get_png_dimensions(base_png)
+        kept, _ = _filter_items(DATA["items"], DATA["artboard"])
+        annotations = [
+            {"label": str(i + 1),
+             "bounds_px": map_bounds_to_pixels(item["bounds"], DATA["artboard"], dims)}
+            for i, item in enumerate(kept)
+        ]
+        assert len(annotations) == len(kept)
+        assert len({a["label"] for a in annotations}) == len(kept), "duplicate labels"
+
+    def test_bounds_map_inside_the_image(self, base_png):
+        """A bound mapped outside the canvas would annotate empty space."""
+        dims = get_png_dimensions(base_png)
+        width, height = dims
+        kept, _ = _filter_items(DATA["items"], DATA["artboard"])
+
+        for item in kept:
+            x0, y0, x1, y1 = map_bounds_to_pixels(item["bounds"], DATA["artboard"], dims)
+            assert 0 <= x0 <= width and 0 <= x1 <= width, f"{item['name']} x out of range"
+            assert 0 <= y0 <= height and 0 <= y1 <= height, f"{item['name']} y out of range"
