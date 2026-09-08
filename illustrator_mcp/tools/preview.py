@@ -431,7 +431,7 @@ async def _generate_preview(
 
 
 # JSX script to collect visible item bounds for annotation overlay
-_COLLECT_ITEMS_JSX = """
+_COLLECT_ITEMS_JSX = r"""
 (function() {
     var doc = app.activeDocument;
     var abIdx = doc.artboards.getActiveArtboardIndex();
@@ -439,24 +439,43 @@ _COLLECT_ITEMS_JSX = """
     var abL = ab[0], abT = ab[1], abR = ab[2], abB = ab[3];
     var MAX = %d;
     var items = [];
+
+    // pageItems contains children of groups as well as top-level items.  An
+    // item's own `hidden` flag is therefore not enough to decide whether it
+    // can actually appear in the exported preview.
+    function isVisibleInHierarchy(item) {
+        var current = item;
+        while (current) {
+            try { if (current.hidden) return false; } catch(e) {}
+            try {
+                if (current.typename === "Layer" && !current.visible) return false;
+            } catch(e) {}
+            try { current = current.parent; } catch(e) { break; }
+            if (current && current.typename === "Document") break;
+        }
+        return true;
+    }
+
+    function itemMcpId(item) {
+        var note = "";
+        try { note = item.note || ""; } catch(e) {}
+        var match = note.match(/@mcp:id=([^\s@]+)/);
+        return match ? match[1] : "";
+    }
+
     for (var i = 0; i < doc.pageItems.length && items.length < MAX; i++) {
         var it = doc.pageItems[i];
-        if (it.hidden) continue;
+        if (!isVisibleInHierarchy(it)) continue;
         try { if (it.guides) continue; } catch(e) {}
         var vb;
         try { vb = it.visibleBounds; } catch(e) { continue; }
         if (vb[2] - vb[0] < 0.5 || vb[1] - vb[3] < 0.5) continue;
         if (vb[2] < abL || vb[0] > abR || vb[3] > abT || vb[1] < abB) continue;
-        var mcpId = "";
-        var note = "";
-        try { note = it.note || ""; } catch(e) {}
-        var idx = note.indexOf("@mcp:id=");
-        if (idx >= 0) mcpId = note.substring(idx + 8, idx + 44);
         items.push({
             name: it.name || it.typename,
             type: it.typename,
             bounds: [vb[0], vb[1], vb[2], vb[3]],
-            mcp_id: mcpId
+            mcp_id: itemMcpId(it)
         });
     }
     return JSON.stringify({artboard: ab, items: items});
@@ -466,7 +485,7 @@ _COLLECT_ITEMS_JSX = """
 # Clip-aware variant: uses explicit AABB bounds for culling instead of
 # the artboard rect.  This avoids the max_items paradox where off-region
 # items exhaust the cap before in-region items are reached.
-_COLLECT_ITEMS_CLIP_JSX = """
+_COLLECT_ITEMS_CLIP_JSX = r"""
 (function() {
     var doc = app.activeDocument;
     var abIdx = doc.artboards.getActiveArtboardIndex();
@@ -474,24 +493,40 @@ _COLLECT_ITEMS_CLIP_JSX = """
     var cL = %s, cT = %s, cR = %s, cB = %s;
     var MAX = %d;
     var items = [];
+
+    function isVisibleInHierarchy(item) {
+        var current = item;
+        while (current) {
+            try { if (current.hidden) return false; } catch(e) {}
+            try {
+                if (current.typename === "Layer" && !current.visible) return false;
+            } catch(e) {}
+            try { current = current.parent; } catch(e) { break; }
+            if (current && current.typename === "Document") break;
+        }
+        return true;
+    }
+
+    function itemMcpId(item) {
+        var note = "";
+        try { note = item.note || ""; } catch(e) {}
+        var match = note.match(/@mcp:id=([^\s@]+)/);
+        return match ? match[1] : "";
+    }
+
     for (var i = 0; i < doc.pageItems.length && items.length < MAX; i++) {
         var it = doc.pageItems[i];
-        if (it.hidden) continue;
+        if (!isVisibleInHierarchy(it)) continue;
         try { if (it.guides) continue; } catch(e) {}
         var vb;
         try { vb = it.visibleBounds; } catch(e) { continue; }
         if (vb[2] - vb[0] < 0.5 || vb[1] - vb[3] < 0.5) continue;
         if (vb[2] < cL || vb[0] > cR || vb[3] > cT || vb[1] < cB) continue;
-        var mcpId = "";
-        var note = "";
-        try { note = it.note || ""; } catch(e) {}
-        var idx = note.indexOf("@mcp:id=");
-        if (idx >= 0) mcpId = note.substring(idx + 8, idx + 44);
         items.push({
             name: it.name || it.typename,
             type: it.typename,
             bounds: [vb[0], vb[1], vb[2], vb[3]],
-            mcp_id: mcpId
+            mcp_id: itemMcpId(it)
         });
     }
     return JSON.stringify({artboard: ab, items: items});
@@ -586,6 +621,7 @@ async def _annotate_preview(
     timeout: Optional[float] = None,
     probe_points: Optional[list] = None,
     clip_box: Optional[List[float]] = None,
+    snapshot: Optional[dict] = None,
 ) -> tuple:
     """Generate annotated preview with numbered bounding boxes.
 
@@ -598,6 +634,9 @@ async def _annotate_preview(
             Y-down points.  When set, item collection is culled to the
             clip region, coordinates are mapped relative to the crop,
             and the ruler shows absolute (global) tick labels.
+        snapshot: Optional already-collected Illustrator snapshot.  This is
+            used by dedicated inspection tools that need annotation labels
+            and rich PageItem metadata to be derived from one DOM read.
 
     Returns:
         (annotated_png_bytes, result_dict)
@@ -638,36 +677,27 @@ async def _annotate_preview(
     if not png_size:
         return img_bytes, _result(warnings=["Could not decode PNG dimensions"])
 
-    # 2. Collect item bounds from Illustrator
-    #    When clip_box is active, use the clip-aware variant that culls
-    #    against the clip region AABB so max_items is not wasted on
-    #    off-region items.
-    # clip_box is already validated upstream by _capture_artboard.
-    # _build_collect_script handles None clip_box gracefully.
-    try:
-        collect_response = await execute_script_with_context(
-            script=_build_collect_script(max_items, clip_box),
-            command_type="annotate_collect",
-            tool_name="illustrator_execute_script",
-            timeout=timeout or 30.0,
-        )
-    except Exception as e:
-        return img_bytes, _result(warnings=[f"Item collection failed: {e}"])
+    # 2. Collect item bounds from Illustrator unless a caller supplied the
+    # exact DOM snapshot that must back this annotation map.
+    if snapshot is None:
+        try:
+            collect_response = await execute_script_with_context(
+                script=_build_collect_script(max_items, clip_box),
+                command_type="annotate_collect",
+                tool_name="illustrator_execute_script",
+                timeout=timeout or 30.0,
+            )
+        except Exception as e:
+            return img_bytes, _result(warnings=[f"Item collection failed: {e}"])
+        raw_result = collect_response.get("result")
+        if not raw_result:
+            return img_bytes, _result(warnings=["Item collection returned empty"])
+        try:
+            snapshot = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
+        except (json.JSONDecodeError, TypeError):
+            return img_bytes, _result(warnings=["Could not parse item collection result"])
 
-    # 3. Parse response
-    raw_result = collect_response.get("result")
-    if not raw_result:
-        return img_bytes, _result(warnings=["Item collection returned empty"])
-
-    try:
-        if isinstance(raw_result, str):
-            snapshot = json.loads(raw_result)
-        else:
-            snapshot = raw_result
-    except (json.JSONDecodeError, TypeError):
-        return img_bytes, _result(warnings=["Could not parse item collection result"])
-
-    # Unwrap host.jsx envelope(s): {ok:true, data:{artboard,items}}
+    # 3. Unwrap host.jsx envelope(s): {ok:true, data:{artboard,items}}
     # or legacy {success:true, result:"..."}.  Two passes handle nested wrapping.
     for _ in range(2):
         if isinstance(snapshot, dict) and "ok" in snapshot:
@@ -676,21 +706,20 @@ async def _annotate_preview(
             elif snapshot.get("ok") is False:
                 err = snapshot.get("error")
                 msg = err.get("message") if isinstance(err, dict) else str(err)
-                return img_bytes, _result(
-                    warnings=[f"Item collection failed: {msg}"]
-                )
+                return img_bytes, _result(warnings=[f"Item collection failed: {msg}"])
             else:
                 break
         elif isinstance(snapshot, dict) and snapshot.get("success") and "result" in snapshot:
             snapshot = snapshot["result"]
         else:
             break
-    # Handle string-inside-data (e.g. data: '{"artboard":[...],...}')
     if isinstance(snapshot, str):
         try:
             snapshot = json.loads(snapshot)
         except (json.JSONDecodeError, TypeError):
             return img_bytes, _result(warnings=["Could not parse unwrapped collection result"])
+    if not isinstance(snapshot, dict):
+        return img_bytes, _result(warnings=["Invalid item collection result"])
 
     artboard_rect = snapshot.get("artboard")
     if not artboard_rect or len(artboard_rect) != 4:
@@ -754,7 +783,7 @@ async def _annotate_preview(
         })
 
         # bounds_pt stays in GLOBAL Illustrator coords for follow-up edits
-        annotation_entries.append({
+        annotation_entry = {
             "label": label,
             "mcp_id": mcp_id if mcp_id else None,
             "has_mcp_id": bool(mcp_id),
@@ -762,7 +791,13 @@ async def _annotate_preview(
             "type": item.get("type", "Item"),
             "bounds_pt": bounds_pt,
             "coverRatio": cover_ratio,
-        })
+        }
+        # A rich snapshot may carry an opaque per-item key so its caller can
+        # resolve a visual label without a second, potentially divergent DOM
+        # traversal.  Standard previews intentionally do not expose it.
+        if "_ground_source_index" in item:
+            annotation_entry["_ground_source_index"] = item["_ground_source_index"]
+        annotation_entries.append(annotation_entry)
 
     # 5. Draw ruler overlay (behind ID pills) then composite bounding boxes
     eff_w_pt = abs(effective_rect[2] - effective_rect[0])

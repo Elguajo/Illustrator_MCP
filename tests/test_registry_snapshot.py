@@ -36,7 +36,7 @@ def _ensure_tools_registered():
 
 
 class TestToolRegistry:
-    """Snapshot test: exactly 12 tools registered."""
+    """Snapshot test: registered tools match the canonical inventory."""
 
     def test_tool_count(self):
         from illustrator_mcp.shared import mcp
@@ -188,4 +188,3 @@ class TestContractMatchesAnnotations:
                     f"Tool '{name}': CONTRACT {contract_field}={doc_val} "
                     f"but annotation {hint_key}={ann_val}"
                 )
-

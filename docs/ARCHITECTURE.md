@@ -108,7 +108,7 @@ _build_envelope_dict(response, context, warnings, diagnostics) → dict
 ```
 
 - **`_build_envelope_dict()`** is the single source of truth for envelope semantics (error classification via `create_structured_error`, trace_id/elapsed_ms enrichment, batch-level ok:false reflection). Private, not exported.
-- **`format_envelope()`** wraps the dict in `json.dumps`. Used by all 12 registered tools.
+- **`format_envelope()`** wraps the dict in `json.dumps`. Used by all 13 registered tools.
 - **`format_response()`** *(deprecated)* — emits `DeprecationWarning`, delegates error formatting to `format_error_response()`, uses `_build_envelope_dict` for result classification. Retained for backward compatibility with unregistered archive tools.
 
 ## Testing Implications

@@ -220,11 +220,12 @@ Every tool carries a `CONTRACT:` line in its docstring and machine-checkable ann
 |---|---|
 | `illustrator_history` | Undo/redo actions (multi-step count), plus named checkpoint management: `checkpoint_save`, `checkpoint_restore`, `checkpoint_list`, `checkpoint_delete` |
 
-### Context & Inspection (1)
+### Context & Inspection (2)
 
 | Tool | Description |
 |---|---|
 | `illustrator_get_document` | Full document tree + optional app info via `scope` param (`"document"`, `"app"`, `"both"`) |
+| `illustrator_ground_object` | Turn `[N]` from an annotated preview into verified PageItem metadata and a stable `@mcp:id`; default is non-mutating. |
 
 ### Path Operations (2)
 
@@ -240,7 +241,7 @@ Every tool carries a `CONTRACT:` line in its docstring and machine-checkable ann
 | `illustrator_query_items` | Declarative item query via the Task Protocol (target selectors, stable refs). Defaults to selection info when no targets given. |
 | `illustrator_preflight_check` | Read-only validation: off-artboard items, zero-size items, empty text, locked layers |
 
-**Total: 12 tools.** Scripting reference and linked-item refresh are available as MCP resources.
+**Total: 13 tools.** Scripting reference and linked-item refresh are available as MCP resources.
 
 ---
 
@@ -390,6 +391,31 @@ The annotation map bridges visual labels to stable `@mcp:id` tags:
   "warnings": []
 }
 ```
+
+### Selected Object Grounding
+
+Use `illustrator_ground_object` after a multimodal client has chosen `[N]` in
+its latest annotated preview. The tool returns a fresh annotated PNG, the
+same `label_to_mcp_id` map used by that PNG, and normalized metadata for the
+selected concrete `PageItem` (ItemRef, visible/geometric bounds, artboard
+screen coordinates, clipping and locked/hidden state).
+
+```python
+illustrator_ground_object(label=3)
+# result.selected_object.stable_id:
+#   {"value": "mcp_...", "status": "existing", "occurrences": 1}
+# result.label_to_mcp_id: {"1": "...", "2": null, "3": "mcp_..."}
+```
+
+Labels are a view-layer convention, so use them only while the document is
+unchanged. The returned `@mcp:id` is the follow-up reference. By default an
+untagged object is reported with `stable_id.status="missing"`; the tool does
+not silently tag it. Set `assign_id=True` only when tagging is intended. That
+explicit mode writes one `@mcp:id` into `PageItem.note`, checks for duplicate
+IDs, and never saves the document. Hidden items and hidden layers are omitted
+from the preview; locked items remain visible and are identified as
+non-editable. Clipping groups and compound paths are reported as their actual
+Illustrator `typename`.
 
 ### Auto-Grounding
 
@@ -884,7 +910,7 @@ python -m scripts.gen_schemas
 6. **Fail Fast with Structured Errors** -- Typed error codes (V/R/S/C/SVG categories) with actionable recovery suggestions.
 7. **Auto-Grounding** -- SOC task results always include an annotated artboard preview, forcing the AI to see the visual state before its next action. No opt-in required.
 8. **VLM QA Cadence** -- Every 5th `execute_script` call auto-injects an annotated preview. Combined with `final_step=True`, the AI is periodically forced to visually verify and catch defects.
-9. **Canonical Tool Annotations** -- A single `TOOL_ANNOTATIONS` registry in `base.py` defines `readOnly`, `destructive`, `idempotent`, and `openWorld` hints for all 12 tools. Each docstring contains a `CONTRACT:` line that is verified against the registry by automated tests, preventing annotation drift.
+9. **Canonical Tool Annotations** -- A single `TOOL_ANNOTATIONS` registry in `base.py` defines `readOnly`, `destructive`, `idempotent`, and `openWorld` hints for all 13 tools. Each docstring contains a `CONTRACT:` line that is verified against the registry by automated tests, preventing annotation drift.
 
 ---
 
