@@ -105,15 +105,30 @@ def write_session_file(port: int, token: str) -> Optional[Path]:
     return path
 
 
-def remove_session_file() -> None:
-    """Delete the session file. Safe to call when it is already gone."""
+def remove_session_file(token: Optional[str] = None) -> None:
+    """Delete the session file, optionally only when it belongs to ``token``.
+
+    More than one MCP process can exist briefly during a restart.  In that
+    case, an old process must not remove the session file most recently
+    published by a newer process.  Callers that own a bridge therefore pass
+    its token; the argument remains optional for diagnostics and legacy use.
+    """
     path = session_file()
     try:
+        if token is not None:
+            with path.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            published_token = payload.get("token")
+            if not isinstance(published_token, str) or not secrets.compare_digest(
+                published_token, token
+            ):
+                logger.info("Session handshake file belongs to another bridge; leaving it intact")
+                return
         path.unlink()
         logger.info(f"Session handshake file removed: {path}")
     except FileNotFoundError:
         pass
-    except OSError as exc:
+    except (OSError, json.JSONDecodeError) as exc:
         logger.warning(f"Could not remove session file {path}: {exc}")
 
 

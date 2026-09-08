@@ -258,7 +258,7 @@ class WebSocketBridge:
         
         # A stale file would point the panel at a dead port with a secret
         # that no longer authenticates anything.
-        remove_session_file()
+        remove_session_file(self.token)
 
         # SHUTTING_DOWN → DISCONNECTED (SHUTTING_DOWN set by _thread_main.finally)
         self._transition(ConnectionState.DISCONNECTED, "Bridge stopped")

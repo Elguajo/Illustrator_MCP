@@ -920,8 +920,7 @@ Illustrator_MCP/
 │   │   ├── documents.py          # Document I/O + checkpoint tools
 │   │   ├── context.py            # State inspection tools
 │   │   ├── query.py              # query_items + preflight_check
-│   │   ├── import_svg.py         # SVG path import tool (d → drawPathPoints)
-│   │   └── archive/              # Disabled legacy tools (reference only)
+│   │   └── import_svg.py         # SVG path import tool (d → drawPathPoints)
 │   ├── overlay.py                # VLM overlay (bounding boxes + ruler + probe markers + coordinate mapping)
 │   └── resources/
 │       ├── docs/
@@ -941,7 +940,8 @@ Illustrator_MCP/
 │   ├── src/
 │   │   ├── App.tsx
 │   │   ├── components/MCPControlPanel.tsx
-│   │   └── hooks/useMCP.ts       # WebSocket connection hook
+│   │   ├── hooks/useMCP.ts       # WebSocket connection hook
+│   │   └── session.ts            # Authenticated bridge-session reader
 │   └── vite.config.ts
 ├── tests/                        # Unit tests (pytest, 1450+ tests)
 │   ├── conftest.py               # Shared fixtures + collection-error guard
@@ -971,13 +971,13 @@ Illustrator_MCP/
 │   └── test_brand_social_kit_fixes.py
 ├── scripts/
 │   ├── mcp_relay.py              # Relay helper
+│   ├── package-cep.sh             # CEP distribution packaging
 │   └── validate_manifest_deps.py # Manifest dependency checker
 ├── docs/
 │   ├── ARCHITECTURE.md
+│   ├── PROTOCOL.md                # Task Protocol specification
 │   └── ROADMAP_v2.4.md
 ├── pyproject.toml
-├── PROTOCOL.md                   # Task Protocol specification
-├── SOC_CONTRACTS.md              # Result contract schemas
 ├── install-cep.sh                # macOS CEP installer
 ├── install-cep.bat               # Windows CEP installer
 └── .env.example

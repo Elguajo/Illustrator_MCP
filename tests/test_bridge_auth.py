@@ -179,6 +179,22 @@ class TestSessionFile:
         remove_session_file()  # must not raise
         assert read_session_file() is None
 
+    def test_old_bridge_cannot_remove_newer_bridge_session(self):
+        """An old process stopping after a restart must not strand the panel."""
+        old_token = "a" * 64
+        current_token = "b" * 64
+        write_session_file(8081, old_token)
+        write_session_file(9000, current_token)
+
+        remove_session_file(old_token)
+
+        assert read_session_file() == {
+            "version": 1,
+            "port": 9000,
+            "token": current_token,
+            "pid": os.getpid(),
+        }
+
     def test_read_missing_returns_none(self):
         assert read_session_file() is None
 
