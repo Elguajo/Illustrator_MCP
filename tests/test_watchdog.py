@@ -28,6 +28,7 @@ class TestWatchdogTick:
         """Watchdog tick triggers disconnect when panel is stale and not busy."""
         bridge.get_panel_health = MagicMock(return_value={
             "stale": True,
+            "heartbeat_seen": True,
             "busy": False,
             "last_heartbeat_ago_ms": 45000,
             "active_request_id": None,
@@ -45,6 +46,7 @@ class TestWatchdogTick:
         """Watchdog tick does nothing when panel is healthy."""
         bridge.get_panel_health = MagicMock(return_value={
             "stale": False,
+            "heartbeat_seen": True,
             "busy": False,
             "last_heartbeat_ago_ms": 1000,
             "active_request_id": None,
@@ -62,6 +64,7 @@ class TestWatchdogTick:
         """Watchdog does not disconnect when panel is stale but busy."""
         bridge.get_panel_health = MagicMock(return_value={
             "stale": True,
+            "heartbeat_seen": True,
             "busy": True,
             "last_heartbeat_ago_ms": 45000,
             "active_request_id": 42,
@@ -79,6 +82,7 @@ class TestWatchdogTick:
         """Watchdog does not disconnect when already disconnected."""
         bridge.get_panel_health = MagicMock(return_value={
             "stale": True,
+            "heartbeat_seen": True,
             "busy": False,
             "last_heartbeat_ago_ms": 45000,
             "active_request_id": None,
@@ -96,6 +100,7 @@ class TestWatchdogTick:
         """CancelledError during disconnect is caught gracefully."""
         bridge.get_panel_health = MagicMock(return_value={
             "stale": True,
+            "heartbeat_seen": True,
             "busy": False,
             "last_heartbeat_ago_ms": 60000,
             "active_request_id": None,

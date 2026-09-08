@@ -93,7 +93,10 @@ async def illustrator_document(params: DocumentInput) -> str:
     if action == "create":
         color_space = "RGB" if params.color_mode.upper() == "RGB" else "CMYK"
         name = params.name or "Untitled"
-        title_line = f'preset.title = "{name}";'
+        # json.dumps produces a fully escaped JS string literal — a raw
+        # f-string here lets a document name break out of the literal and
+        # inject arbitrary ExtendScript.
+        title_line = f"preset.title = {json.dumps(name)};"
         script = templates.DOC_CREATE.substitute(
             width=params.width,
             height=params.height,

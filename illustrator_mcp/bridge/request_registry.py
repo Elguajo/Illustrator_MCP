@@ -128,6 +128,15 @@ class RequestRegistry:
         Returns:
             True if update was pushed, False if request not found.
         """
+        # Coerce for parity with is_streaming/complete_streaming — otherwise a
+        # string id passes the is_streaming gate and then misses the int-keyed
+        # dict here, silently dropping every progress update.
+        try:
+            request_id = int(request_id)
+        except (TypeError, ValueError):
+            logger.warning(f"Non-integer request_id in push_update: {request_id!r}")
+            return False
+
         with self._lock:
             streaming = self._streaming.get(request_id)
             if streaming:
@@ -316,7 +325,17 @@ class RequestRegistry:
             return self._pending.get(request_id)
     
     def is_streaming(self, request_id: int) -> bool:
-        """Check if a request ID is a streaming request."""
+        """Check if a request ID is a streaming request.
+
+        Coerces to int for parity with :meth:`complete_request` and
+        :meth:`complete_streaming` — JSON may hand back a string id, and a
+        mismatch here silently routes a streaming response into the
+        non-streaming path, where it is dropped.
+        """
+        try:
+            request_id = int(request_id)
+        except (TypeError, ValueError):
+            return False
         with self._lock:
             return request_id in self._streaming
 

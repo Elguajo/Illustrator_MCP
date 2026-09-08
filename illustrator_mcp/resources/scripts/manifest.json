@@ -168,6 +168,7 @@
             ],
             "exports": [
                 "makeError",
+                "makeTaskError",
                 "safeExecute",
                 "buildReport",
                 "validatePayload",

@@ -17,8 +17,8 @@
 
 // ==================== Dependency Guard ====================
 
-if (typeof makeError !== "function" || typeof ErrorCodes === "undefined") {
-    throw new Error("ops_core.jsx requires contracts.jsx (makeError=" + typeof makeError + ", ErrorCodes=" + typeof ErrorCodes + ")");
+if (typeof makeError !== "function" || typeof makeTaskError !== "function" || typeof ErrorCodes === "undefined") {
+    throw new Error("ops_core.jsx requires contracts.jsx (makeError=" + typeof makeError + ", makeTaskError=" + typeof makeTaskError + ", ErrorCodes=" + typeof ErrorCodes + ")");
 }
 if (typeof extractMcpId !== "function") {
     throw new Error("ops_core.jsx requires mcp_id.jsx (extractMcpId=" + typeof extractMcpId + ")");
@@ -77,7 +77,7 @@ function validateOp(op, strict) {
 
     // Required: task
     if (!op.task || typeof op.task !== "string") {
-        errors.push(makeError(
+        errors.push(makeTaskError(
             ErrorCodes.V_INVALID_PAYLOAD,
             "Op missing 'task' string",
             "validate"
@@ -87,7 +87,7 @@ function validateOp(op, strict) {
 
     // Handler must exist
     if (!OP_HANDLERS[op.task]) {
-        errors.push(makeError(
+        errors.push(makeTaskError(
             ErrorCodes.V_INVALID_PAYLOAD,
             "Unknown op task: " + op.task,
             "validate"
@@ -97,7 +97,7 @@ function validateOp(op, strict) {
 
     // Params must be object if present
     if (op.params && typeof op.params !== "object") {
-        errors.push(makeError(
+        errors.push(makeTaskError(
             ErrorCodes.V_INVALID_PARAM_TYPE,
             "Op 'params' must be an object",
             "validate"
@@ -123,7 +123,7 @@ function validateOp(op, strict) {
             if (allowedTypes[i] === targetType) { found = true; break; }
         }
         if (!found) {
-            errors.push(makeError(
+            errors.push(makeTaskError(
                 ErrorCodes.V_UNKNOWN_TARGET_TYPE,
                 "Unknown target type: " + targetType,
                 "validate"
@@ -141,7 +141,7 @@ function validateOp(op, strict) {
                     if (allowedKeys[j] === key) { isAllowed = true; break; }
                 }
                 if (!isAllowed) {
-                    errors.push(makeError(
+                    errors.push(makeTaskError(
                         ErrorCodes.V_SCHEMA_MISMATCH,
                         "Unknown op key: " + key,
                         "validate"

@@ -297,15 +297,19 @@ def _build_export_script(
         opts.artBoardClipping = true;
         var file = new File({path_literal});
         doc.exportFile(file, {export_type}, opts);
-        var suffixed = new File(file.fsName.replace(/\\.png$/i, "___mcp_clip.png"));
-        if (suffixed.exists) {{
+        // Illustrator appends the artboard name to artboard-clipped exports.
+        // The extension MUST follow {fmt}: hardcoding .png made the jpg path
+        // resolve `suffixed` to `file` itself and delete its own export.
+        var suffixRe = new RegExp("\\\\.{fmt}$", "i");
+        var suffixed = new File(file.fsName.replace(suffixRe, "___mcp_clip.{fmt}"));
+        if (suffixed.exists && suffixed.fsName !== file.fsName) {{
             if (file.exists) file.remove();
             suffixed.rename(file.name);
         }}
         if (!file.exists) {{
             var dir = file.parent;
-            var base = file.name.replace(/\\.png$/i, "");
-            var found = dir.getFiles(base + "*.png");
+            var base = file.name.replace(suffixRe, "");
+            var found = dir.getFiles(base + "*.{fmt}");
             if (found.length > 0) {{ found[0].rename(file.name); }}
         }}
     }} finally {{

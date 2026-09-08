@@ -158,9 +158,22 @@ async def _execute_via_bridge(
                     f"request {health.get('active_request_id')}). "
                     f"Consider increasing timeout beyond {timeout}s."
                 )
-            elif health.get("stale"):
+            elif not health.get("heartbeat_seen"):
+                # The panel's first heartbeat lands a few seconds after
+                # connect, so "none yet" is normal right after connecting and
+                # is NOT evidence of a dead panel.
                 detail = (
-                    f"No heartbeat received — panel may be frozen or crashed. "
+                    f"Script timed out after {timeout}s. The panel has not sent "
+                    f"its first heartbeat yet (it starts a few seconds after "
+                    f"connecting), so this does not by itself indicate a frozen "
+                    f"panel. Consider breaking into smaller operations or "
+                    f"increasing timeout."
+                )
+            elif health.get("stale"):
+                ago = health.get("last_heartbeat_ago_ms")
+                ago_s = f"{ago / 1000:.0f}s" if ago is not None else "an unknown time"
+                detail = (
+                    f"No heartbeat for {ago_s} — panel may be frozen or crashed. "
                     f"Try reconnecting the CEP panel."
                 )
             else:

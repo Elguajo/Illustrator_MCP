@@ -299,6 +299,14 @@ class WebSocketBridge:
             - busy: whether panel reported busy
             - active_request_id: ID of script being executed (if busy)
             - stale: True if no heartbeat within watchdog_stale_threshold
+            - heartbeat_seen: whether ANY heartbeat has arrived on this
+              connection
+
+        ``heartbeat_seen`` exists because the panel starts its heartbeat with
+        ``setInterval(fn, 5000)``, so the first one lands ~5s AFTER connect.
+        Without this flag a healthy, freshly connected panel is
+        indistinguishable from a dead one, and callers wrongly tell the user
+        to reconnect.
         """
         if self._last_heartbeat == 0.0:
             return {
@@ -306,6 +314,7 @@ class WebSocketBridge:
                 "busy": False,
                 "active_request_id": None,
                 "stale": True,
+                "heartbeat_seen": False,
             }
         ago_ms = (time.time() - self._last_heartbeat) * 1000
         threshold_ms = config.watchdog_stale_threshold * 1000
@@ -314,6 +323,7 @@ class WebSocketBridge:
             "busy": self._panel_busy,
             "active_request_id": self._panel_active_request,
             "stale": ago_ms > threshold_ms,
+            "heartbeat_seen": True,
         }
 
     async def _watchdog_loop(self) -> None:
@@ -338,6 +348,7 @@ class WebSocketBridge:
         health = self.get_panel_health()
         if (
             health["stale"]
+            and health.get("heartbeat_seen", True)  # never-seen != dead
             and not health["busy"]
             and self.is_connected()
         ):

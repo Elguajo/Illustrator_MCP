@@ -81,10 +81,14 @@ function compute(items, params, report) {
                 __mcp_check();
                 if (result.ops[w].ok && result.ops[w].targets_resolved === 0
                     && ops[w] && ops[w].targets) {
-                    report.warnings.push(
-                        "Resolved 0 targets for task '" + ops[w].task +
-                        "'; no items modified. Check target IDs/selectors."
-                    );
+                    // Must be a TaskWarning object ({stage, message}); a bare
+                    // string fails TaskReport validation on the Python side.
+                    report.warnings.push({
+                        stage: "compute",
+                        message: "Resolved 0 targets for task '" + ops[w].task +
+                            "'; no items modified.",
+                        suggestion: "Check target IDs/selectors."
+                    });
                 }
             }
         }

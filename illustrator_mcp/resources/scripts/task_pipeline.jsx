@@ -22,7 +22,14 @@
 // ==================== Error Construction ====================
 
 /**
- * Create a structured error object
+ * Create a flat TaskError object.
+ *
+ * This is the shape required by the TaskReport contract (protocol.TaskError):
+ * ``code``/``message``/``stage`` live at the top level.  Everything that ends
+ * up in ``report.errors`` MUST use this, not ``makeError`` — the latter wraps
+ * the error in an ``{ok:false, error:{...}}`` result envelope, which fails
+ * TaskReport validation on the Python side and degrades the response.
+ *
  * @param {string} code - Error code from ErrorCodes
  * @param {string} message - Human-readable message
  * @param {string} stage - 'validate', 'collect', 'compute', 'apply', 'export'
@@ -30,16 +37,33 @@
  * @param {Object} [details] - Optional additional context
  * @returns {Object} TaskError object
  */
+function makeTaskError(code, message, stage, itemRef, details) {
+    return {
+        code: code,
+        message: message,
+        stage: stage,
+        itemRef: itemRef || null,
+        details: details || null
+    };
+}
+
+/**
+ * Create a structured error *result envelope* ({ok:false, error:TaskError}).
+ *
+ * Use for op/function return values.  For ``report.errors`` use
+ * :func:`makeTaskError` instead.
+ *
+ * @param {string} code - Error code from ErrorCodes
+ * @param {string} message - Human-readable message
+ * @param {string} stage - 'validate', 'collect', 'compute', 'apply', 'export'
+ * @param {Object} [itemRef] - Optional ItemRef for localization
+ * @param {Object} [details] - Optional additional context
+ * @returns {Object} {ok:false, error:TaskError}
+ */
 function makeError(code, message, stage, itemRef, details) {
     return {
         ok: false,
-        error: {
-            code: code,
-            message: message,
-            stage: stage,
-            itemRef: itemRef || null,
-            details: details || null
-        }
+        error: makeTaskError(code, message, stage, itemRef, details)
     };
 }
 
@@ -57,7 +81,7 @@ function safeExecute(fn, item, report, stage) {
     try {
         return fn(item);
     } catch (e) {
-        report.errors.push(makeError(
+        report.errors.push(makeTaskError(
             ErrorCodes.R_ITEM_OPERATION_FAILED,
             e.message,
             stage,
@@ -376,7 +400,7 @@ function executeTask(payload, collectFn, computeFn, applyFn) {
 
     if (!doc) {
         report.ok = false;
-        report.errors.push(makeError(
+        report.errors.push(makeTaskError(
             ErrorCodes.V_NO_DOCUMENT,
             "No active document",
             "collect"
@@ -465,7 +489,7 @@ function executeTask(payload, collectFn, computeFn, applyFn) {
 
         } catch (e) {
             report.ok = false;
-            report.errors.push(makeError(
+            report.errors.push(makeTaskError(
                 e.code || ErrorCodes.R_COLLECT_FAILED,
                 e.message,
                 "collect",
@@ -496,7 +520,7 @@ function executeTask(payload, collectFn, computeFn, applyFn) {
         if (trace) trace.push("[COMPUTE] Generated " + actions.length + " actions");
     } catch (e) {
         report.ok = false;
-        report.errors.push(makeError(
+        report.errors.push(makeTaskError(
             ErrorCodes.R_COMPUTE_FAILED,
             e.message,
             "compute",
@@ -538,7 +562,7 @@ function executeTask(payload, collectFn, computeFn, applyFn) {
         if (trace) trace.push("[APPLY] Complete");
     } catch (e) {
         report.ok = false;
-        report.errors.push(makeError(
+        report.errors.push(makeTaskError(
             ErrorCodes.R_APPLY_FAILED,
             e.message,
             "apply",

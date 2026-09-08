@@ -200,8 +200,30 @@ async def run() -> None:
     finally:
         try:
             if fixture_created:
+                # Close the fixture by identity, never app.activeDocument:
+                # the user's own (possibly unsaved) document may be active if
+                # anything above changed focus, and DONOTSAVECHANGES on it
+                # would silently destroy their work.
                 await _script(
-                    "app.activeDocument.close(SaveOptions.DONOTSAVECHANGES); JSON.stringify({closed: true});",
+                    """
+                    (function () {
+                        var closed = null;
+                        for (var i = app.documents.length - 1; i >= 0; i--) {
+                            var doc = app.documents[i];
+                            var isFixture = false;
+                            try {
+                                doc.pageItems.getByName("live_handoff_target");
+                                isFixture = true;
+                            } catch (e) { isFixture = false; }
+                            if (isFixture) {
+                                closed = doc.name;
+                                doc.close(SaveOptions.DONOTSAVECHANGES);
+                                break;
+                            }
+                        }
+                        return JSON.stringify({closed: closed});
+                    })();
+                    """,
                     "Close isolated live fixture without saving",
                 )
         finally:

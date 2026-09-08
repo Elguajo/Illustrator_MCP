@@ -43,3 +43,6 @@ htmlcov/
 .git/
 .pytest_cache/
 .venv/
+
+# Windows-style path artifact from tests run with C:/... paths
+C:/
