@@ -200,3 +200,55 @@ class TestTokenQuality:
         token = generate_token()
         assert all(c in "0123456789abcdef" for c in token)
         assert " " not in expected_subprotocol(token)
+
+
+class TestBridgeLifecycle:
+    """start()/stop() must publish and retract the handshake file.
+
+    A session file that outlives its server points the panel at a dead port
+    with a secret that authenticates nothing; one written before the listener
+    is up sends the panel into a retry loop against a closed socket.
+    """
+
+    @pytest.fixture(autouse=True)
+    def isolated_home(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(session_mod.Path, "home", staticmethod(lambda: tmp_path))
+        yield tmp_path
+
+    def test_start_publishes_the_file_and_stop_removes_it(self):
+        from illustrator_mcp.websocket_bridge import WebSocketBridge
+
+        bridge = WebSocketBridge(port=TEST_PORT + 6)
+        try:
+            bridge.start()
+            assert bridge.wait_until_ready(timeout=10), "bridge never became ready"
+
+            published = read_session_file()
+            assert published is not None, "start() did not publish the handshake file"
+            assert published["port"] == TEST_PORT + 6
+            assert published["token"] == bridge.token
+            assert session_mod.file_mode_is_private(session_mod.session_file())
+        finally:
+            bridge.stop()
+
+        assert read_session_file() is None, "stop() left a stale handshake file"
+
+    def test_each_run_issues_a_fresh_secret(self):
+        """A restart must not keep authenticating an old panel's captured token."""
+        from illustrator_mcp.websocket_bridge import WebSocketBridge
+
+        first = WebSocketBridge(port=TEST_PORT + 7)
+        second = WebSocketBridge(port=TEST_PORT + 7)
+        assert first.token != second.token
+
+    def test_file_names_the_port_the_bridge_actually_uses(self):
+        """The panel reads the port from here, so a mismatch strands it."""
+        from illustrator_mcp.websocket_bridge import WebSocketBridge
+
+        bridge = WebSocketBridge(port=TEST_PORT + 8)
+        try:
+            bridge.start()
+            assert bridge.wait_until_ready(timeout=10)
+            assert read_session_file()["port"] == bridge.port
+        finally:
+            bridge.stop()
