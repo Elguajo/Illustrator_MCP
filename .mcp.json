@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "illustrator": {
+      "command": ".venv/bin/illustrator-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}

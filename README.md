@@ -758,6 +758,25 @@ netstat -ano | findstr 8081  # Windows
 If occupied, change `WS_PORT` in `.env` and restart. The panel picks the new
 port up from the handshake file — no rebuild needed.
 
+### Registering with an MCP Client
+
+The server is started by whichever MCP client you use; nothing runs on its own.
+Until a client starts it, no one is listening on the WebSocket port and the panel
+reports *MCP server not running*.
+
+`.mcp.json` in the repository root registers it for Claude Code opened in this
+directory. For Codex, add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.illustrator]
+command = "/absolute/path/to/Illustrator_MCP/.venv/bin/illustrator-mcp"
+```
+
+Only one client can hold the bridge at a time: the WebSocket port is exclusive,
+and a second server starts but logs `Port 8081 is already in use` and runs
+without a bridge, so its tools fail with connection errors. Close one client
+before using the other.
+
 ### Distributing the Panel
 
 `install-cep.sh` symlinks the source folder and turns on `PlayerDebugMode`.
