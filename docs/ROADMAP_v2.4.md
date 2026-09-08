@@ -1,5 +1,9 @@
 # Illustrator MCP v2.4 Implementation Plan
 
+> **Status: delivered.** Both libraries shipped — `assets` and `presets` are in
+> `illustrator_mcp/resources/scripts/manifest.json` and loadable via `includes`.
+> This file is kept as the historical plan; it is not open work.
+
 ## Overview
 
 Version 2.4 adds **two new ExtendScript libraries** for asset analysis and layout presets. No new tools. No architecture changes. Pure script-based enhancements.

@@ -1,4 +1,9 @@
-# Task Protocol Reference v2.3
+# Task Protocol Reference
+
+> The wire version is `TASK_PROTOCOL_VERSION` in
+> `illustrator_mcp/schemas/contracts.py` — currently **3.0.0**. Sections below
+> that still say v2.3 describe structures that have not changed since then;
+> the constant is the source of truth if they ever disagree.
 
 Complete reference documentation for the Illustrator MCP Task Protocol.
 

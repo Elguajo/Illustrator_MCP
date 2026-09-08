@@ -4,6 +4,9 @@ Unit tests for document operation tools.
 Tests verify that the correct JavaScript is generated for each tool.
 """
 
+import os
+import tempfile
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -14,6 +17,16 @@ from illustrator_mcp.tools.documents import (
     ExportDocumentInput,
     ExportFormat
 )
+
+# Export creates the parent directory of file_path. A literal Windows path here
+# made os.path.abspath() resolve it against the working tree on POSIX, leaving a
+# directory named "C:" in the repository after every test run.
+_EXPORT_DIR = tempfile.mkdtemp(prefix="ilmcp-export-")
+
+
+def _export_path(name: str = "test.png") -> str:
+    return os.path.join(_EXPORT_DIR, name)
+
 
 
 class TestDocument:
@@ -152,7 +165,7 @@ class TestExportDocument:
     @pytest.mark.asyncio
     async def test_export_png(self, mock_esc):
         """Test PNG export."""
-        params = ExportDocumentInput(file_path="C:/output/image.png", format=ExportFormat.PNG)
+        params = ExportDocumentInput(file_path=_export_path("image.png"), format=ExportFormat.PNG)
         await illustrator_export_document(params)
 
         for call in mock_esc.call_args_list:
@@ -167,7 +180,7 @@ class TestExportDocument:
     @pytest.mark.asyncio
     async def test_export_jpg(self, mock_esc):
         """Test JPG export."""
-        params = ExportDocumentInput(file_path="C:/output/image.jpg", format=ExportFormat.JPG)
+        params = ExportDocumentInput(file_path=_export_path("image.jpg"), format=ExportFormat.JPG)
         await illustrator_export_document(params)
 
         for call in mock_esc.call_args_list:
@@ -182,7 +195,7 @@ class TestExportDocument:
     @pytest.mark.asyncio
     async def test_export_svg(self, mock_esc):
         """Test SVG export."""
-        params = ExportDocumentInput(file_path="C:/output/image.svg", format=ExportFormat.SVG)
+        params = ExportDocumentInput(file_path=_export_path("image.svg"), format=ExportFormat.SVG)
         await illustrator_export_document(params)
 
         for call in mock_esc.call_args_list:
@@ -197,7 +210,7 @@ class TestExportDocument:
     @pytest.mark.asyncio
     async def test_export_with_scale(self, mock_esc):
         """Test export with custom scale."""
-        params = ExportDocumentInput(file_path="C:/output/image.png", scale=2.0)
+        params = ExportDocumentInput(file_path=_export_path("image.png"), scale=2.0)
         await illustrator_export_document(params)
 
         for call in mock_esc.call_args_list:

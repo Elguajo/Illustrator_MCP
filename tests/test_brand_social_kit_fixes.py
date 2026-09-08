@@ -8,6 +8,7 @@ query.py, proxy_client.py, and manifest.json.
 import json
 import os
 import re
+import tempfile
 import textwrap
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
@@ -21,6 +22,17 @@ from illustrator_mcp.tools.documents import (
 )
 from illustrator_mcp.proxy_client import execute_script_with_context
 from illustrator_mcp import templates
+
+# Export creates the parent directory of file_path. A literal Windows
+# path here made os.path.abspath() resolve it relative to the working
+# tree on POSIX, leaving a directory named "C:" in the repository after
+# every test run.
+_EXPORT_DIR = tempfile.mkdtemp(prefix="ilmcp-export-")
+
+
+def _export_path(name: str = "test.png") -> str:
+    return os.path.join(_EXPORT_DIR, name)
+
 
 
 # ==================== Helpers ====================
@@ -177,7 +189,7 @@ class TestPrecheckScope:
     async def test_precheck_includes_artboard_scope(self):
         """Verify precheck script contains scope: 'artboard'."""
         params = ExportDocumentInput(
-            file_path="C:/output/test.png",
+            file_path=_export_path(),
             format=ExportFormat.PNG,
             artboard_only=True,
             artboard_index=0,
@@ -192,7 +204,7 @@ class TestPrecheckScope:
     async def test_precheck_not_run_without_artboard_only(self):
         """No precheck when artboard_only is False."""
         params = ExportDocumentInput(
-            file_path="C:/output/test.png",
+            file_path=_export_path(),
             format=ExportFormat.PNG,
             artboard_only=False,
         )
@@ -206,7 +218,7 @@ class TestPrecheckScope:
     async def test_precheck_with_null_artboard_index(self):
         """Precheck works with artboard_index=None (uses null in JS)."""
         params = ExportDocumentInput(
-            file_path="C:/output/test.png",
+            file_path=_export_path(),
             format=ExportFormat.PNG,
             artboard_only=True,
             artboard_index=None,
@@ -221,7 +233,7 @@ class TestPrecheckScope:
     async def test_precheck_has_expected_options(self):
         """Precheck call has all expected option fields."""
         params = ExportDocumentInput(
-            file_path="C:/output/test.png",
+            file_path=_export_path(),
             format=ExportFormat.PNG,
             artboard_only=True,
             artboard_index=2,
@@ -239,7 +251,7 @@ class TestPrecheckScope:
     async def test_precheck_blank_artboard_warning(self):
         """Warning when precheck shows 0 items on artboard."""
         params = ExportDocumentInput(
-            file_path="C:/output/test.png",
+            file_path=_export_path(),
             format=ExportFormat.PNG,
             artboard_only=True,
             artboard_index=0,
@@ -269,7 +281,7 @@ class TestPrecheckScope:
     async def test_precheck_failure_is_non_fatal(self):
         """If precheck raises, export still proceeds with a warning."""
         params = ExportDocumentInput(
-            file_path="C:/output/test.png",
+            file_path=_export_path(),
             format=ExportFormat.PNG,
             artboard_only=True,
             artboard_index=0,
@@ -296,7 +308,7 @@ class TestPrecheckScope:
     async def test_precheck_result_in_diagnostics(self):
         """Precheck result appears in diagnostics."""
         params = ExportDocumentInput(
-            file_path="C:/output/test.png",
+            file_path=_export_path(),
             format=ExportFormat.PNG,
             artboard_only=True,
             artboard_index=0,
@@ -571,7 +583,7 @@ class TestTimeoutParameter:
     async def test_pdf_export_calls_with_timeout(self):
         """End-to-end: PDF export passes timeout=60.0 through to execute_script_with_context."""
         params = ExportDocumentInput(
-            file_path="C:/output/test.pdf",
+            file_path=_export_path("test.pdf"),
             format=ExportFormat.PDF,
         )
 
@@ -586,7 +598,7 @@ class TestTimeoutParameter:
     async def test_png_export_calls_with_none_timeout(self):
         """End-to-end: PNG export passes timeout=None."""
         params = ExportDocumentInput(
-            file_path="C:/output/test.png",
+            file_path=_export_path(),
             format=ExportFormat.PNG,
         )
 
@@ -659,7 +671,7 @@ class TestExportDimensions:
     async def test_scale_embedded_in_dimension_formula(self):
         """The scale variable is embedded in the JSX dimension formula."""
         params = ExportDocumentInput(
-            file_path="C:/output/test.png",
+            file_path=_export_path(),
             format=ExportFormat.PNG,
             scale=2.0,
         )
@@ -675,7 +687,7 @@ class TestExportDimensions:
     async def test_scale_1x_in_dimension_formula(self):
         """At scale=1.0, the formula uses 100.0."""
         params = ExportDocumentInput(
-            file_path="C:/output/test.png",
+            file_path=_export_path(),
             format=ExportFormat.PNG,
             scale=1.0,
         )
@@ -870,7 +882,7 @@ class TestExportIntegration:
     async def test_export_without_artboard_only_still_works(self):
         """Regression: export without artboard_only has no precheck, still succeeds."""
         params = ExportDocumentInput(
-            file_path="C:/output/test.jpg",
+            file_path=_export_path("test.jpg"),
             format=ExportFormat.JPG,
         )
 
@@ -884,7 +896,7 @@ class TestExportIntegration:
     async def test_export_diagnostics_include_format_and_scale(self):
         """Diagnostics contain file_path, format, scale, artboard_only."""
         params = ExportDocumentInput(
-            file_path="C:/output/test.png",
+            file_path=_export_path(),
             format=ExportFormat.PNG,
             scale=1.5,
             artboard_only=False,
@@ -894,7 +906,7 @@ class TestExportIntegration:
         result = json.loads(result_str)
         diag = result.get("diagnostics", {})
 
-        assert diag["file_path"] == "C:/output/test.png"
+        assert diag["file_path"] == _export_path()
         assert diag["format"] == "png"
         assert diag["scale"] == 1.5
         assert diag["artboard_only"] is False
@@ -904,7 +916,7 @@ class TestExportIntegration:
         """Every export format produces a valid JSON envelope with ok field."""
         for fmt in [ExportFormat.PNG, ExportFormat.JPG, ExportFormat.SVG, ExportFormat.PDF]:
             params = ExportDocumentInput(
-                file_path=f"C:/output/test.{fmt.value}",
+                file_path=_export_path(f"test.{fmt.value}"),
                 format=fmt,
             )
             result_str, _, _ = await _run_export(params)

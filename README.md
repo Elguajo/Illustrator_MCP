@@ -320,7 +320,7 @@ illustrator_execute_script(
 
 ## Task Protocol & SOC Framework
 
-### Task Protocol (v2.3)
+### Task Protocol (v3.0)
 
 For multi-item operations, the Task Protocol provides structured **collect > compute > apply** execution with standardized error codes, retry semantics, and stable references.
 
@@ -871,7 +871,7 @@ Illustrator_MCP/
 │   ├── proxy_client.py           # Script execution + response envelope (format_envelope)
 │   ├── websocket_bridge.py       # WebSocket bridge facade
 │   ├── libraries.py              # Library resolver + manifest-driven injection
-│   ├── protocol.py               # Task Protocol v2.3 Pydantic models
+│   ├── protocol.py               # Task Protocol Pydantic models
 │   ├── errors.py                 # Structured error codes + suggestions
 │   ├── templates.py              # Reusable ExtendScript templates ({ok, data} envelope)
 │   ├── response_classification.py # Response classifier (error metadata extraction)
@@ -957,7 +957,7 @@ Illustrator_MCP/
 │   ├── ARCHITECTURE.md
 │   └── ROADMAP_v2.4.md
 ├── pyproject.toml
-├── PROTOCOL.md                   # Task Protocol v2.3 specification
+├── PROTOCOL.md                   # Task Protocol specification
 ├── SOC_CONTRACTS.md              # Result contract schemas
 ├── install-cep.sh                # macOS CEP installer
 ├── install-cep.bat               # Windows CEP installer

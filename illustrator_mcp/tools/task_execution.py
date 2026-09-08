@@ -114,7 +114,7 @@ def _load_jsx_template(name: str) -> str:
 
 
 class ExecuteTaskInput(ToolInputBase):
-    """Input for executing a structured task (Task Protocol v2.1)."""
+    """Input for executing a structured task (Task Protocol v3.0)."""
     
     payload: TaskPayload = Field(..., description="Task payload with targets, params, and options")
     
@@ -232,7 +232,7 @@ _TASK_NAME = "illustrator_execute_task"
 
 @mcp.tool(name=_TASK_NAME, annotations=TOOL_ANNOTATIONS[_TASK_NAME])
 async def illustrator_execute_task(params: ExecuteTaskInput) -> Union[str, list]:
-    """Execute a structured task using the Task Protocol v2.1.
+    """Execute a structured task using the Task Protocol v3.0.
 
     CONTRACT: readOnly=False, destructive=True, idempotent=False, openWorld=False
 

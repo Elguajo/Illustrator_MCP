@@ -46,3 +46,11 @@ htmlcov/
 
 # Windows-style path artifact from tests run with C:/... paths
 C:/
+
+# Live-test run output. The .ai files in "living test/" are input fixtures the
+# procedures in living_test*.md open; the PNGs and result logs are what a run
+# produced and must not be committed.
+living test/*.png
+tests/*.png
+test_checkpoint_results.txt
+test_curves_result.txt
