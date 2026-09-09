@@ -255,6 +255,13 @@ async def illustrator_get_document(params: GetDocumentInput) -> str:
 
     # Partial or full failure — strict semantics: ok=false, partials in diagnostics
     if not doc_ok and not app_ok:
+        # Both sub-calls failed for the same underlying reason (e.g. the CEP
+        # panel is disconnected). Surface that concrete, actionable error
+        # verbatim instead of a generic message that hides the real cause
+        # (see C001 disconnected getting masked as a bare "E999").
+        for env, raw in ((doc_env, doc_result), (app_env, app_result)):
+            if isinstance(env, dict) and env.get("error") and isinstance(raw, str):
+                return raw
         msg = "Failed to collect document and app context."
     elif not doc_ok:
         msg = "Failed to collect document context (no active document?)."
