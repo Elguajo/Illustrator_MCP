@@ -101,6 +101,48 @@ History before 3.1.0 was not tracked here; see `git log` for it.
   - An out-of-range `artboard_index` is `V011` with a clear message (was `E999`).
   - Hidden objects (and everything in a hidden layer or group) are not checked;
     they appear under `objects.hidden`.
+- **`illustrator_effects`**: live drop shadow and Gaussian blur on objects
+  addressed by uuid, plus removal. Everything below was verified live on
+  30.8.1, rendered to pixels where it mattered.
+  - Applied with `PageItem.applyEffect(LiveEffectXML)` from fixed templates.
+    The shadow color is set exactly (rendered `#2a9d8f` read back as
+    `42,157,143`), with blend modes normal/multiply/screen and a darkness mode.
+  - It works on paths, compound paths (the effect goes on the compound),
+    groups and text.
+  - Effects cannot be read from script: there is no DOM property, FXG export
+    silently writes `.ai`, and the `.ai` private data is compressed. The tool
+    says so and reports visible bounds before and after as its evidence. An
+    apply that does not enlarge the bounds of an unpadded object is reported as
+    failed, and one on an object already padded by an earlier effect as
+    `verified: false`.
+  - Removal re-applies the document's `[Default]` graphic style, then restores
+    and reads back fill, stroke, opacity, blend, isolation and knockout. That
+    style re-aligns a centered stroke to the inside, which cannot be scripted
+    back, so stroked paths are skipped unless `allow_stroke_realign=true`.
+  - Replaying "Reduce to Basic Appearance" through a generated action
+    (`app.loadAction` + `app.doScript`) hung Illustrator at 100% CPU, so it is
+    deliberately not used.
+  - Locked and hidden objects, including those inside a locked or hidden group
+    or layer, are reported in `skipped_objects`. An optional `document` stops
+    the call when another document is active.
+- **`illustrator_swatches`**: `list` (paged, with groups and kinds:
+  process/spot/global/gradient/pattern), exact `get`, `create`
+  (process/spot/global), `create_group`, `delete`, `delete_group`,
+  `libraries` and `library`.
+  - Names are never guessed: a miss returns only existing names within two
+    edits or containing the query.
+  - Illustrator accepts duplicate swatch and group names, so the tool refuses
+    them itself.
+  - `SwatchGroup.remove()` deletes its swatches, so `delete_group` moves them
+    out first unless `keep_swatches=false`.
+  - Deleting `[None]`/`[Registration]` is a silent no-op in Illustrator; those
+    are skipped and every delete is read back.
+  - `.ai` libraries are read by opening them with alerts suppressed (a library
+    with stale links would otherwise block on a modal dialog), then closing them
+    and restoring the active document.
+  - `.ase` libraries, which `app.open` refuses, are parsed directly. The parser
+    was checked against an independent implementation on all 40 shipped files
+    (1866 swatches). `.acb`/`.acbl` color books are reported as not readable.
 
 ### Fixed
 

@@ -3,8 +3,10 @@
 Status: research note, 2026-10-02. Phase 1 implemented the same day: native uuid
 identity, `illustrator_inspect`, `illustrator_artboards`, document `list`/`switch`, and the
 `{"type": "uuid"}` task target. Phase 2 implemented: `illustrator_text` (style-preserving replace,
-font replace, range and paragraph styling, outlines), text overflow detection, and preflight v2
-(patterns 3, 4, 5, 7). See CHANGELOG. The remaining gap rows below are open.
+font replace, range and paragraph styling, outlines), text overflow detection, preflight v2
+(patterns 3, 4, 5, 7), `illustrator_effects` (drop shadow / Gaussian blur apply and remove) and
+`illustrator_swatches` (document swatches, groups, libraries). See CHANGELOG. The remaining gap
+rows below are open.
 
 ## Source and boundary
 
@@ -73,8 +75,8 @@ Missing on our side, in priority order:
 | Inspection | none open (structure, artboard, selection, appearance, typography, text overflow done) |
 | Text | none open (missing-font report, style-preserving replace, font replace, outlines, character ranges, paragraph spacing done). Not covered: character/paragraph *styles*, OpenType features, fitting text to its frame |
 | Transforms | move/scale in absolute mode, rotate around combined bounds |
-| Effects | live drop shadow and Gaussian blur (apply, read, remove) |
-| Swatches | read document and library swatches, create swatches and groups |
+| Effects | reading effect parameters: not possible from script, see below (drop shadow / Gaussian blur apply and remove done) |
+| Swatches | importing a library swatch into the document in one call; Pantone/HKS color books (`.acb`) are not scriptable (document list/get/create/delete, groups, `.ai` and `.ase` libraries done) |
 | Paths | simplify / smooth cleanup, rasterize |
 | Preflight | none open (scoped report with images, links, fonts, overset, overprint, rich black, total ink done). Not covered: font embedding rights, transparency flattening, trapping, output-intent / ICC checks, link status of *placed* files (not exposed to scripts) |
 
@@ -116,6 +118,25 @@ already asks questions), and the prompt relay to Adobe's assistant.
   The typed tools sidestep this by reporting artboard and object bounds in one canvas space.
 - No ExtendScript access to Illustrator's artboard preset table was found; presets ship as our own
   data (`ARTBOARD_PRESETS`).
+- Effects (phase 2): `applyEffect()` with LiveEffect XML is the only route.
+  Drop shadow keys `horz`/`vert`/`opac`/`blur`/`blnd`/`csrc`/`dark` and an
+  `sclr` Fill entry (`"5 r g b"` RGB, `"1 c m y k"` CMYK) were confirmed by
+  rendering to PNG; `blnd` 0/1/2 = normal/multiply/screen, `csrc` 0 = color,
+  1 = darkness. An unknown effect name is accepted silently; malformed XML
+  throws. Effects cannot be read back: no DOM property, `FXGSaveOptions`
+  silently writes `.ai`, private data is compressed. Removal: no
+  `removeEffect()`; "Reduce to Basic Appearance" is an Appearance-panel flyout
+  item unreachable by `executeMenuCommand`, and replaying it through a
+  generated action hung Illustrator at 100% CPU. The `[Default]` graphic style
+  clears effects but resets paint and re-aligns a centered stroke to the
+  inside.
+- Swatches (phase 2): `swatch.parent` is always the document (group membership
+  only via `getAllSwatches()`); duplicate swatch and group names are accepted;
+  `addSwatch()` moves between groups; `SwatchGroup.remove()` deletes its
+  members; removing `[None]`/`[Registration]` is a silent no-op; a CMYK spot in
+  an RGB document is stored as RGB. `.ai` libraries open as documents (a
+  library with stale links raises a modal dialog unless alerts are
+  suppressed); `app.open` refuses `.ase`.
 
 ## Verified live in phase 2 (Illustrator 30.8.1)
 

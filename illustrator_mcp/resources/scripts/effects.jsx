@@ -285,13 +285,13 @@ function fxDefaultStyle(doc) {
 }
 
 /**
- * A path whose visible bounds still exceed its geometry plus a generous
- * stroke allowance after clearing kept an effect: the document's [Default]
- * style is not a basic appearance. Only checked for paths, where the
- * geometry fully explains the basic appearance.
+ * True when visibleBounds already exceed what the geometry explains (plus a
+ * generous stroke allowance for paths, 1 pt for anything else): the item
+ * carries effects, or for a group, stroked children. Illustrator pads an
+ * effect's bounds conservatively (a 2 pt blur adds about 36 pt per side), so
+ * a new effect on a padded item may leave the bounds unchanged.
  */
-function fxEffectsRemain(item) {
-    if (item.typename !== "PathItem" && item.typename !== "CompoundPathItem") return false;
+function fxPadded(item) {
     var vb, gb;
     try { vb = item.visibleBounds; gb = item.geometricBounds; } catch (e) { return false; }
     var pad = 1;
@@ -305,6 +305,16 @@ function fxEffectsRemain(item) {
         } catch (e) {}
     }
     return vb[0] < gb[0] - pad || vb[1] > gb[1] + pad || vb[2] > gb[2] + pad || vb[3] < gb[3] - pad;
+}
+
+/**
+ * A path still padded after clearing kept an effect: the document's
+ * [Default] style is not a basic appearance. Only checked for paths, where
+ * the geometry fully explains the basic appearance.
+ */
+function fxEffectsRemain(item) {
+    if (item.typename !== "PathItem" && item.typename !== "CompoundPathItem") return false;
+    return fxPadded(item);
 }
 
 /**
@@ -327,12 +337,18 @@ function fxClear(style, item) {
 
 /**
  * Apply one effect, or remove all effects, on items addressed by uuid.
- * P: {action: "apply"|"remove", uuids: [...], effect?, drop_shadow?,
+ * P: {action: "apply"|"remove", uuids: [...], document?, effect?, drop_shadow?,
  *     gaussian_blur?, replace?, allow_stroke_realign?}
  */
 function fxRun(doc, P) {
     var action = P.action;
     if (action !== "apply" && action !== "remove") dmFail("Unknown action '" + action + "'");
+    // uuids are numbered per document and collide across open documents.
+    if (P.document && P.document !== String(doc.name)) {
+        dmFail("These uuids came from document '" + P.document + "' but the active document is '" +
+            doc.name + "'. Switch back with illustrator_document(action='switch', name='" + P.document +
+            "') or call illustrator_inspect again on this document.");
+    }
     var xml = action === "apply" ? fxEffectXml(P) : null;
     var needsClear = action === "remove" || !!P.replace;
     var style = needsClear ? fxDefaultStyle(doc) : null;
@@ -370,14 +386,20 @@ function fxRun(doc, P) {
             }
             if (action === "apply") {
                 var base = dmVisibleBounds(item);
+                var padded = fxPadded(item);
                 item.applyEffect(xml);
                 var grown = dmVisibleBounds(item);
                 if (fxExpectsGrowth(P)) {
-                    if (fxSameRect(base, grown)) {
+                    if (!fxSameRect(base, grown)) {
+                        entry.verified = true;
+                    } else if (padded) {
+                        entry.verified = false;
+                        entry.note = "The object's bounds were already padded by existing effects (or stroked " +
+                            "children), so the new effect fit inside them and could not be verified";
+                    } else {
                         failed.push({ uuid: uuid, reason: "effect_not_applied: visible bounds did not change" });
                         continue;
                     }
-                    entry.verified = true;
                 } else {
                     entry.verified = false;
                     entry.note = "Zero offset and zero blur leave the bounds unchanged, so the effect could not be verified";
@@ -393,6 +415,7 @@ function fxRun(doc, P) {
 
     var out = {
         action: action,
+        document: dmDocumentRef(doc),
         success_count: objects.length,
         fail_count: failed.length,
         failed_objects: failed,

@@ -90,13 +90,40 @@ function swAllNames(doc) {
     return out;
 }
 
-/** Existing names close to a wanted one (case-insensitive equal or substring). Never invented. */
+/** Levenshtein distance, giving up (returns max + 1) once it exceeds max. */
+function swEditDistance(a, b, max) {
+    if (Math.abs(a.length - b.length) > max) return max + 1;
+    var prev = [];
+    var j;
+    for (j = 0; j <= b.length; j++) prev.push(j);
+    for (var i = 1; i <= a.length; i++) {
+        var cur = [i];
+        var rowMin = i;
+        for (j = 1; j <= b.length; j++) {
+            var cost = a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1;
+            var v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+            cur.push(v);
+            if (v < rowMin) rowMin = v;
+        }
+        if (rowMin > max) return max + 1;
+        prev = cur;
+    }
+    return prev[b.length];
+}
+
+/**
+ * Existing names close to a wanted one: case-insensitive equal, substring,
+ * or within two edits (typos). Only names from the list are ever returned.
+ */
 function swSimilar(names, wanted, limit) {
     var w = String(wanted).toLowerCase();
     var out = [];
     for (var i = 0; i < names.length && out.length < (limit || 5); i++) {
         var n = String(names[i]).toLowerCase();
-        if (n === w || n.indexOf(w) >= 0 || (w.length > 2 && w.indexOf(n) >= 0 && n.length > 2)) out.push(names[i]);
+        if (n === w || n.indexOf(w) >= 0 || (w.length > 2 && w.indexOf(n) >= 0 && n.length > 2) ||
+            (w.length > 3 && swEditDistance(n, w, 2) <= 2)) {
+            out.push(names[i]);
+        }
     }
     return out;
 }

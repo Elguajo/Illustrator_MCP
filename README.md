@@ -213,7 +213,7 @@ No additional servers or processes needed.
 
 ## Available Tools
 
-This server pairs a powerful script executor with typed tools. The typed tools (`illustrator_inspect`, `illustrator_artboards`, `illustrator_text`, document `list`/`switch`) return Illustrator's native PageItem `uuid`, and `illustrator_execute_task` accepts those uuids as a `{"type": "uuid"}` target, so an agent can inspect, pick, and act without writing ExtendScript. Raw script stays the fallback for anything not covered.
+This server pairs a powerful script executor with typed tools. The typed tools (`illustrator_inspect`, `illustrator_artboards`, `illustrator_text`, `illustrator_effects`, `illustrator_swatches`, document `list`/`switch`) return Illustrator's native PageItem `uuid`, and `illustrator_execute_task` accepts those uuids as a `{"type": "uuid"}` target, so an agent can inspect, pick, and act without writing ExtendScript. Raw script stays the fallback for anything not covered.
 
 Every tool carries a `CONTRACT:` line in its docstring and machine-checkable annotation hints (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) sourced from a canonical `TOOL_ANNOTATIONS` registry in `base.py`. Hints follow the **worst-case capability rule**: if *any* action of a multi-action tool is destructive, the tool is annotated as destructive.
 
@@ -258,6 +258,12 @@ Every tool carries a `CONTRACT:` line in its docstring and machine-checkable ann
 | Tool | Description |
 |---|---|
 | `illustrator_text` | Edit existing text by native `uuid`: `replace` (find/replace that keeps each match's character attributes; matches spanning differently styled characters are skipped and reported), `replace_font` (from a used font, missing ones included, to an installed one; other runs untouched), `style` (font, size, color, tracking over a character range; paragraph space before/after), `outline` (text to glyph paths, returns the new group's uuid and keeps `@mcp:id`). Pass `document` (from `illustrator_inspect`) with `uuids`. Locked or hidden frames are never modified; every write is read back. Text overflow is reported by `illustrator_inspect(view="details")`. |
+### Effects & Swatches (2)
+
+| Tool | Description |
+|---|---|
+| `illustrator_effects` | Live **drop shadow** and **Gaussian blur** by uuid (`action="apply"`, optional `replace`), and `action="remove"` to clear live effects while restoring and read-checking fill, stroke, opacity and blend. Effect parameters cannot be read back from script; results report visible bounds before/after as the evidence. Locked/hidden objects are skipped; stroked paths are skipped on remove unless `allow_stroke_realign=true` (the stroke's alignment is not scriptable). |
+| `illustrator_swatches` | Document swatches and groups: `list` (paged), exact `get` (misses return only existing similar names), `create` (process / spot / global, refuses duplicate names, read back), `create_group`, `delete`, `delete_group` (keeps its swatches by default). Swatch libraries: `libraries` and `library` (`.ai` read by a guarded open/close, `.ase` parsed; `.acb` color books are not scriptable). |
 
 ### Path Operations (2)
 
@@ -273,7 +279,7 @@ Every tool carries a `CONTRACT:` line in its docstring and machine-checkable ann
 | `illustrator_query_items` | Declarative item query via the Task Protocol (target selectors, stable refs). Defaults to selection info when no targets given. |
 | `illustrator_preflight_check` | Read-only scoped report (`scopes`: document, objects, text, images, links, colors). Findings are grouped by tag (`text.missing_font`, `text.overset`, `images.low_ppi`, `links.missing`, `objects.off_artboard`, `objects.hairline_stroke`, `colors.registration`, `colors.overprint_white`, `colors.rich_black_text`, ...) with exact counts and `affected_objects[{uuid, name, type, layer_path, ...facts}]`. `checks_run` / `checks_skipped` say which checks actually covered the document, so an empty category is only clean when its check ran. |
 
-**Total: 15 tools.** Scripting reference and linked-item refresh are available as MCP resources.
+**Total: 18 tools.** Scripting reference and linked-item refresh are available as MCP resources.
 
 ---
 
@@ -330,6 +336,8 @@ illustrator_execute_script(
 | `ops_journal` | Op journal for batch replay and recomputability |
 | `assets` | Asset analysis (bounds, aspect ratio, orientation) |
 | `auto_tag` | Auto-assign `@mcp:id=` tags to untagged items (delta / converge modes) |
+| `effects` | Live effects by uuid: `applyEffect` LiveEffect XML for drop shadow / Gaussian blur, removal through the `[Default]` graphic style with paint restore and read-back |
+| `swatches` | Swatches, swatch groups and swatch libraries (ASE parser for `.ase`) |
 
 ---
 
@@ -510,6 +518,29 @@ active, the task fails with `reason: "document_mismatch"` instead of acting on
 it. A missing, hidden, or locked uuid target also fails the collect stage rather
 than being skipped. Layers and artboards have no uuid; address them by layer
 path and artboard index or name.
+
+### Effects and swatches
+
+```python
+illustrator_effects(action="apply", effect="drop_shadow", uuids=["484"], document="poster.ai",
+                    offset_x=0, offset_y=4, blur=8, opacity=30, color={"hex": "#1a1a2e"})
+illustrator_effects(action="remove", uuids=["484"], document="poster.ai")
+
+illustrator_swatches(action="get", names=["Brand Red"])   # exact; a miss lists similar existing names
+illustrator_swatches(action="create_group", group="Brand")
+illustrator_swatches(action="create", group="Brand", swatches=[
+  {"name": "Brand Red", "kind": "global", "color": {"hex": "#d62828"}}])
+illustrator_swatches(action="library", library="Corporate", names=["C=93 M=35 Y=0 K=15"])
+```
+
+Illustrator exposes no scripting API to read an object's effects, so
+`illustrator_effects` never reports effect parameters. A shadow or blur always
+enlarges an object's visible bounds, and that change is the read-back. When the
+object was already padded by an earlier effect, the result says `verified: false`
+instead of guessing. Removal re-applies the document's `[Default]` graphic style
+and then restores the basic paint. Extra Appearance-panel fills and strokes go
+with the effects, and a stroke would be re-aligned to the inside, which is why
+stroked paths need `allow_stroke_realign=true`.
 
 ### Auto-Grounding
 
