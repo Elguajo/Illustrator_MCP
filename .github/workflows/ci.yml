@@ -56,6 +56,22 @@ jobs:
             exit 1
           fi
 
+  jsx:
+    name: jsx tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Pure JSX tests
+        # Required by docs/ARCHITECTURE_DOCTRINE.md section 6 (Go/No-Go).
+        # Runs the DOM-free ExtendScript modules under node; no dependencies.
+        run: node tests_jsx/run_tests.js
+
   panel:
     name: cep panel build
     runs-on: ubuntu-latest
