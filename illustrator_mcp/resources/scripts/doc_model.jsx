@@ -84,6 +84,24 @@ function dmMcpId(item) {
     }
 }
 
+/**
+ * Identify the document a result describes. uuids are numbered per document
+ * and collide across open documents, so a {type: "uuid"} task target must
+ * carry this name back (see resolveUuidTargets in targets.jsx).
+ * path is null for a document that was never saved.
+ */
+function dmDocumentRef(doc) {
+    var ref = { name: String(doc.name), path: null };
+    try { ref.path = (doc.fullName && doc.fullName.exists) ? doc.fullName.fsName : null; } catch (e) {}
+    return ref;
+}
+
+/** Attach dmDocumentRef(doc) to an inspect view result. */
+function dmWithDocument(doc, result) {
+    result.document = dmDocumentRef(doc);
+    return result;
+}
+
 /** Resolve uuids to PageItems. Unknown uuids are reported, never thrown. @requires mcp_id */
 function dmResolveUuids(doc, uuids) {
     var items = [];

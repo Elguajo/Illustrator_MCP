@@ -456,7 +456,8 @@
                 "extractMcpId",
                 "setMcpId",
                 "removeIdFromNote",
-                "resolvePageItemByUuid"
+                "resolvePageItemByUuid",
+                "ownerDocumentOf"
             ],
             "description": "MCP ID utilities: extraction, assignment, note manipulation, and targeted index removal"
         },
@@ -624,6 +625,8 @@
                 "dmToYUp",
                 "dmUuid",
                 "dmMcpId",
+                "dmDocumentRef",
+                "dmWithDocument",
                 "dmResolveUuids",
                 "dmLayerPath",
                 "dmFindLayer",

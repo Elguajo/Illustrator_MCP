@@ -8,6 +8,9 @@ see resolvePageItemByUuid in mcp_id.jsx):
   - for a CompoundPathItem it returns a *different* object typed GroupItem
     with the same uuid and parent.
 
+A third, getPageItemFromUuid() ignoring its receiver and resolving in the
+active document, is reproduced per test with ``_SHARE_LOOKUP``.
+
 Coordinates in the fixture are Illustrator's Y-up document space; everything
 the library returns is canvas Y-down.
 """
@@ -71,7 +74,8 @@ function makeItem(spec, parent, layer) {
   return it;
 }
 function build(spec) {
-  var doc = { layers: [], artboards: [], _active: 0, selection: spec.selection || [] };
+  var doc = { typename: "Document", name: spec.name || "Untitled-1", layers: [], artboards: [], _active: 0,
+    selection: spec.selection || [] };
   var byName = {}, byUuid = {};
   function index(it) {
     if (it.name) byName[it.name] = it;
@@ -185,6 +189,74 @@ class TestResolvePageItemByUuid:
 
     def test_genuine_group_is_returned_as_is(self):
         assert _value('resolvePageItemByUuid(doc, "11") === built.byName.grp', SCENE) is True
+
+
+# Illustrator resolves every doc.getPageItemFromUuid() call in the active
+# document, and uuids collide across documents (two new documents both number
+# their first item 473). Here ``doc`` is the inactive document and ``active``
+# shares SCENE's uuids, so every lookup through ``doc`` lands in ``active``.
+_SHARE_LOOKUP = (
+    "var active = build({spec}).doc; "
+    "doc.getPageItemFromUuid = active.getPageItemFromUuid; "
+)
+
+
+def _with_active_doc(expr: str) -> str:
+    return "(function () { " + _SHARE_LOOKUP.format(spec=json.dumps(SCENE)) + "return " + expr + "; })()"
+
+
+class TestUuidResolutionAcrossDocuments:
+    @pytest.mark.parametrize("uuid", ["10", "11", "12", "13", "14", "15", "20"])
+    def test_inactive_document_never_yields_the_active_documents_item(self, uuid):
+        # Precondition: the raw lookup really does hit the other document.
+        assert _value(_with_active_doc(f'ownerDocumentOf(doc.getPageItemFromUuid("{uuid}")) === active'),
+                      SCENE) is True
+        assert _value(_with_active_doc(f'resolvePageItemByUuid(doc, "{uuid}") === null'), SCENE) is True
+
+    @pytest.mark.parametrize("uuid", ["10", "14", "20"])
+    def test_active_document_still_resolves_its_own_items(self, uuid):
+        assert _value(_with_active_doc(f'ownerDocumentOf(resolvePageItemByUuid(active, "{uuid}")) === active'),
+                      SCENE) is True
+
+    def test_compound_path_in_the_active_document_is_still_unwrapped(self):
+        assert _value(_with_active_doc('resolvePageItemByUuid(active, "14").typename'), SCENE) == "CompoundPathItem"
+
+    def test_details_report_other_document_hits_as_failed(self):
+        v = _value(_with_active_doc('dmDetails(doc, {uuids: ["10"]})'), SCENE)
+        assert v["success_count"] == 0
+        assert v["failed_objects"] == [{"uuid": "10", "reason": "not_found"}]
+
+
+class TestInspectNamesItsDocument:
+    @pytest.mark.parametrize("call", [
+        "dmStructure(doc, {})",
+        'dmArtboardView(doc, {})',
+        "dmSelectionView(doc, {})",
+        'dmDetails(doc, {uuids: ["10"]})',
+    ])
+    def test_every_view_carries_the_document_name(self, call):
+        v = _value(f"dmWithDocument(doc, {call})", {**SCENE, "name": "poster.ai"})
+        assert v["document"] == {"name": "poster.ai", "path": None}
+
+    def test_saved_document_reports_its_path(self):
+        expr = ('(function () { doc.fullName = { exists: true, fsName: "/tmp/poster.ai" }; '
+                'return dmDocumentRef(doc); })()')
+        assert _value(expr, {**SCENE, "name": "poster.ai"}) == {"name": "poster.ai", "path": "/tmp/poster.ai"}
+
+
+class TestOwnerDocumentOf:
+    def test_walks_nested_parents_to_the_document(self):
+        assert _value("ownerDocumentOf(built.byName.label) === doc", SCENE) is True
+        assert _value("ownerDocumentOf(built.byName.deep) === doc", SCENE) is True
+
+    def test_unreadable_parent_chain_is_null(self):
+        expr = ("(function () { var it = { typename: 'PathItem' }; "
+                "it.__defineGetter__('parent', function () { throw new Error('MRAP'); }); "
+                "return ownerDocumentOf(it) === null; })()")
+        assert _value(expr, SCENE) is True
+
+    def test_detached_item_is_null(self):
+        assert _value("ownerDocumentOf({ typename: 'PathItem', parent: null }) === null", SCENE) is True
 
 
 # ==================== inspection ====================
@@ -345,21 +417,23 @@ class TestArtboards:
 
 # ==================== uuid task targets ====================
 
-def _collect(target: dict, spec: dict) -> dict:
+def _collect(target: dict, spec: dict, prelude: str = "") -> dict:
     src = "\n".join(
         (SCRIPTS / name).read_text(encoding="utf-8") for name in ("mcp_id.jsx", "targets.jsx")
     )
     harness = f"""
 {_FIXTURE}
-var ErrorCodes = {{ R_COLLECT_FAILED: "R001", R_ELEMENT_NOT_FOUND: "R008" }};
+var ErrorCodes = {{ R_COLLECT_FAILED: "R001", R_ELEMENT_NOT_FOUND: "R008", V_MISSING_REQUIRED_PARAM: "V006" }};
 function makeError(code, message, stage, itemRef, details) {{
   return {{ ok: false, error: {{ code: code, message: message, details: details || null }} }};
 }}
 function describeItemV2(item) {{ return {{ itemType: item.typename }}; }}
 {src}
 var built = build({json.dumps(spec)});
+var doc = built.doc;
+{prelude}
 try {{
-  var items = collectTargets(built.doc, {json.dumps(target)});
+  var items = collectTargets(doc, {json.dumps(target)});
   var names = [];
   for (var i = 0; i < items.length; i++) names.push(items[i].name + ":" + items[i].typename);
   console.log(JSON.stringify({{ ok: true, items: names }}));
@@ -373,35 +447,96 @@ try {{
 
 class TestUuidTargets:
     def test_resolves_in_request_order_and_dedupes(self):
-        res = _collect({"type": "uuid", "uuids": ["12", "10", "12"]}, SCENE)
+        res = _collect({"type": "uuid", "document": "Untitled-1", "uuids": ["12", "10", "12"]}, SCENE)
         assert res == {"ok": True, "items": ["dot:PathItem", "card:PathItem"]}
 
     def test_compound_path_target_is_the_real_compound(self):
-        res = _collect({"type": "uuid", "uuids": ["14"]}, SCENE)
+        res = _collect({"type": "uuid", "document": "Untitled-1", "uuids": ["14"]}, SCENE)
         assert res["items"] == ["ring:CompoundPathItem"]
 
     def test_missing_uuid_fails_collect(self):
-        res = _collect({"type": "uuid", "uuids": ["10", "404"]}, SCENE)
+        res = _collect({"type": "uuid", "document": "Untitled-1", "uuids": ["10", "404"]}, SCENE)
         assert res["ok"] is False
         assert "not found: 404" in res["message"]
 
     @pytest.mark.parametrize("flag", ["hidden", "locked"])
     def test_hidden_or_locked_item_fails_collect(self, flag):
         spec = {"layers": [{"name": "L", "items": [{"name": "x", "uuid": "1", flag: True}]}]}
-        res = _collect({"type": "uuid", "uuids": ["1"]}, spec)
+        res = _collect({"type": "uuid", "document": "Untitled-1", "uuids": ["1"]}, spec)
         assert res["ok"] is False
         assert flag in res["message"]
 
     def test_locked_layer_fails_collect(self):
         spec = {"layers": [{"name": "L", "locked": True, "items": [{"name": "x", "uuid": "1"}]}]}
-        res = _collect({"type": "uuid", "uuids": ["1"]}, spec)
+        res = _collect({"type": "uuid", "document": "Untitled-1", "uuids": ["1"]}, spec)
         assert res["ok"] is False and "locked" in res["message"]
 
+    def test_uuid_from_another_open_document_fails_collect(self):
+        # The other document is active and holds the same uuid numbers.
+        res = _collect({"type": "uuid", "document": "Untitled-1", "uuids": ["10"]}, SCENE, prelude=_SHARE_LOOKUP.format(spec=json.dumps(SCENE)))
+        assert res["ok"] is False
+        assert "not found: 10" in res["message"]
+
     def test_protocol_model_accepts_uuid_target(self):
-        sel = TargetSelector(target={"type": "uuid", "uuids": ["412"]})
+        sel = TargetSelector(target={"type": "uuid", "uuids": ["412"], "document": "poster.ai"})
         assert isinstance(sel.target, UuidTarget)
         with pytest.raises(ValidationError):
-            TargetSelector(target={"type": "uuid", "uuids": []})
+            TargetSelector(target={"type": "uuid", "uuids": [], "document": "poster.ai"})
+
+    @pytest.mark.parametrize("extra", [{}, {"document": ""}])
+    def test_protocol_model_requires_document(self, extra):
+        with pytest.raises(ValidationError, match="document"):
+            TargetSelector(target={"type": "uuid", "uuids": ["412"], **extra})
+
+
+class TestUuidTargetDocumentGuard:
+    """uuids collide across open documents: a target names the one it came from."""
+
+    def test_matching_document_resolves(self):
+        res = _collect({"type": "uuid", "uuids": ["10"], "document": "poster.ai"}, {**SCENE, "name": "poster.ai"})
+        assert res == {"ok": True, "items": ["card:PathItem"]}
+
+    def test_other_active_document_fails_before_any_lookup(self):
+        # The active document has the same uuid numbers, so a lookup would hit.
+        res = _collect({"type": "uuid", "uuids": ["10"], "document": "poster.ai"}, {**SCENE, "name": "flyer.ai"})
+        assert res["ok"] is False
+        assert res["code"] == "R001"
+        assert res["details"] == {"reason": "document_mismatch",
+                                  "expected_document": "poster.ai", "active_document": "flyer.ai"}
+        assert "illustrator_document(action='switch', name='poster.ai')" in res["message"]
+
+    @pytest.mark.parametrize("target", [
+        {"type": "uuid", "uuids": ["10"]},
+        {"type": "uuid", "uuids": ["10"], "document": ""},
+        # Nested in a compound target, where validatePayload does not look.
+        {"type": "compound", "anyOf": [{"type": "uuid", "uuids": ["10"]}]},
+    ])
+    def test_missing_document_fails_collect(self, target):
+        res = _collect(target, SCENE)
+        assert res["ok"] is False
+        assert res["code"] == "V006"
+        assert res["details"] == {"reason": "missing_document"}
+
+
+def _validate_payload(payload: dict) -> list:
+    src = "\n".join(
+        (SCRIPTS / name).read_text(encoding="utf-8")
+        for name in ("polyfills.jsx", "contracts.jsx", "task_pipeline.jsx")
+    )
+    harness = f"{src}\nconsole.log(JSON.stringify(validatePayload({json.dumps(payload)})));"
+    out = subprocess.run(["node", "-e", harness], check=True, capture_output=True, text=True, cwd=ROOT)
+    return json.loads(out.stdout)
+
+
+class TestValidatePayloadUuidDocument:
+    def test_uuid_target_without_document_is_rejected_up_front(self):
+        errors = _validate_payload({"task": "style_set_fill", "targets": {"type": "uuid", "uuids": ["1"]}})
+        assert [e["error"]["code"] for e in errors] == ["V006"]
+        assert "targets.document" in errors[0]["error"]["message"]
+
+    def test_uuid_target_with_document_validates(self):
+        payload = {"task": "style_set_fill", "targets": {"type": "uuid", "uuids": ["1"], "document": "a.ai"}}
+        assert _validate_payload(payload) == []
 
 
 # ==================== Python tool layer ====================
@@ -467,7 +602,7 @@ class TestToolDispatch:
             await illustrator_inspect(InspectInput(view="artboard", artboard_index=1))
         kwargs = m.call_args.kwargs
         assert kwargs["includes"] == ["doc_model"]
-        assert "dmArtboardView(doc, P)" in kwargs["script"]
+        assert "dmWithDocument(doc, dmArtboardView(doc, P))" in kwargs["script"]
         assert '"artboard_index": 1' in kwargs["script"]
 
     @pytest.mark.asyncio

@@ -21,9 +21,16 @@ History before 3.1.0 was not tracked here; see `git log` for it.
     last artboard), `activate`, `fit` (computed from bounds, selection
     untouched), and named `presets` that keep the target's orientation.
   - `illustrator_document` gains `list` and `switch`.
-  - Task Protocol target `{"type": "uuid", "uuids": [...]}`: O(1) resolution
-    instead of the `@mcp:id` scan of `doc.pageItems`; a missing, hidden, or
-    locked item fails collect.
+  - Task Protocol target `{"type": "uuid", "uuids": [...], "document": name}`:
+    O(1) resolution instead of the `@mcp:id` scan of `doc.pageItems`; a
+    missing, hidden, or locked item fails collect. uuids are numbered per
+    document and collide across open documents (two new documents both number
+    their first item 473), and `getPageItemFromUuid()` ignores its receiver and
+    resolves in the active document. So inspect results name their `document`,
+    the target must carry it back, and collect fails with
+    `reason: "document_mismatch"` when another document is active;
+    `resolvePageItemByUuid` also returns null for a hit owned by any document
+    other than the one passed in (verified live on 30.8.1).
   - All new bounds are canvas-global, Y-down, in the same space as artboard
     bounds. Request errors (unknown artboard, last-artboard delete, nothing to
     fit) return `V011` with their own message instead of `E999` "review script

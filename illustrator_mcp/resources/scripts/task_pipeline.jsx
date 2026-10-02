@@ -197,6 +197,14 @@ function validatePayload(payload) {
                 "validate"
             ));
         } else if (target.type === "uuid") {
+            if (typeof target.document !== "string" || !target.document) {
+                errors.push(makeError(
+                    ErrorCodes.V_MISSING_REQUIRED_PARAM,
+                    "targets.document is required when type='uuid': pass result.document.name " +
+                        "from the illustrator_inspect call that returned the uuids",
+                    "validate"
+                ));
+            }
             if (!target.uuids || !(target.uuids instanceof Array) || target.uuids.length === 0) {
                 errors.push(makeError(
                     ErrorCodes.V_MISSING_REQUIRED_PARAM,
