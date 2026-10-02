@@ -50,6 +50,7 @@ TOOL_ANNOTATIONS: dict[str, dict] = {
     "illustrator_effects":         {"readOnlyHint": False, "destructiveHint": True,  "idempotentHint": False, "openWorldHint": False},
     # swatches reads swatch library files from the Illustrator install and user folders.
     "illustrator_swatches":        {"readOnlyHint": False, "destructiveHint": True,  "idempotentHint": False, "openWorldHint": True },
+    "illustrator_text":            {"readOnlyHint": False, "destructiveHint": True,  "idempotentHint": False, "openWorldHint": False},
     # assign_id is an explicit opt-in mutation of PageItem.note; default mode is read-only.
     "illustrator_ground_object": {"readOnlyHint": False, "destructiveHint": True,  "idempotentHint": False, "openWorldHint": False},
 }

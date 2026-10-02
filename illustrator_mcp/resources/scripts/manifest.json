@@ -649,6 +649,11 @@
                 "dmPaintSource",
                 "dmAppearance",
                 "dmFontAvailable",
+                "dmFontStatus",
+                "dmColorKey",
+                "dmFontRuns",
+                "dmTextOverflow",
+                "dmEffectiveState",
                 "dmTextDetails",
                 "dmGeometry",
                 "dmDetails",
@@ -745,6 +750,72 @@
                 "SW_ASE_KINDS"
             ],
             "description": "Document swatches and swatch groups (list, exact get, create process/spot/global, delete with read-back) and swatch libraries (.ai opened with alerts suppressed, .ase parsed)."
+        },
+        "doc_text": {
+            "file": "doc_text.jsx",
+            "version": "1.0.0",
+            "dependencies": [
+                "polyfills",
+                "mcp_id",
+                "doc_model"
+            ],
+            "exports": [
+                "dtCollectFrames",
+                "dtBlockReason",
+                "dtSkip",
+                "dtStoryKey",
+                "dtStoryFrames",
+                "dtRange",
+                "dtStyleKey",
+                "dtIsWordChar",
+                "dtFindAll",
+                "dtNormalizeBreaks",
+                "dtReplaceText",
+                "dtReplaceFont",
+                "dtMakeColor",
+                "dtNear",
+                "dtColorMatches",
+                "dtColorConverts",
+                "dtStyleRange",
+                "dtOutline"
+            ],
+            "description": "Text editing for illustrator_text: style-preserving find/replace, font replacement, character/paragraph styling, outlines. Native-uuid targets, batch result contract, locked/hidden frames skipped."
+        },
+        "preflight": {
+            "file": "preflight.jsx",
+            "version": "2.0.0",
+            "dependencies": [
+                "polyfills",
+                "mcp_id",
+                "doc_model"
+            ],
+            "exports": [
+                "pfState",
+                "pfOn",
+                "pfAdd",
+                "pfUnreadable",
+                "pfBase",
+                "pfExtend",
+                "pfItemBounds",
+                "pfContains",
+                "pfCenterIn",
+                "pfIsWhite",
+                "pfIsRegistration",
+                "pfInk",
+                "pfNoteSpot",
+                "pfCheckPaint",
+                "pfCheckText",
+                "pfCheckImage",
+                "pfCheckObject",
+                "pfVisit",
+                "pfWalkItems",
+                "pfWalkLayer",
+                "pfDocumentInfo",
+                "pfDocumentChecks",
+                "pfReport",
+                "pfRun"
+            ],
+            "description": "Scoped preflight fact report (document/objects/text/images/links/colors): findings per tag with affected_objects, checks_run/checks_skipped coverage."
         }
     }
 }

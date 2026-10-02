@@ -67,8 +67,8 @@ async def run_dm(
 ) -> str:
     """Execute one doc_model call and map dmFail() request errors to V011.
 
-    ``includes`` adds libraries built on doc_model (dmFail must be loaded);
-    ``suggestions`` replaces the default V011 hints.
+    ``includes`` replaces the default ["doc_model"] for libraries built on it
+    (they must keep dmFail loaded); ``suggestions`` replaces the default V011 hints.
     """
     raw = await execute_jsx_tool(
         script=dm_script(call, payload, needs_doc=needs_doc),

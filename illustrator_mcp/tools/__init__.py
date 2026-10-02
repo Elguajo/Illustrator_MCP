@@ -5,7 +5,7 @@ SCRIPTING FIRST ARCHITECTURE:
 This MCP uses a minimal toolset following the blender-mcp pattern.
 Most operations should be done via illustrator_execute_script.
 
-Consolidated tool inventory (17 tools):
+Consolidated tool inventory (18 tools):
 - execute_script: Run any ExtendScript code
 - execute_task: Structured task protocol operations
 - document: Create/open/save/close documents (unified)
@@ -15,7 +15,7 @@ Consolidated tool inventory (17 tools):
 - set_reference: Reference image overlay
 - get_document: Document structure + app info (scope param)
 - query_items: Declarative item queries
-- preflight_check: Validation checks
+- preflight_check: scoped preflight report (document/objects/text/images/links/colors)
 - path_boolean: Boolean path operations
 - path_import_svg: SVG path data import
 - ground_object: resolve an annotated-preview label to PageItem metadata and @mcp:id
@@ -23,6 +23,7 @@ Consolidated tool inventory (17 tools):
 - artboards: list/create/update/delete/activate/fit artboards, named size presets
 - effects: live drop shadow / Gaussian blur apply and remove by uuid
 - swatches: document swatches and groups, swatch libraries
+- text: find/replace, font replacement, range styling, outlines by native uuid
 """
 
 # Authoritative list of expected tool names (single source of truth).
@@ -45,6 +46,7 @@ EXPECTED_TOOL_NAMES = {
     "illustrator_artboards",
     "illustrator_effects",
     "illustrator_swatches",
+    "illustrator_text",
 }
 
 
@@ -80,7 +82,10 @@ def register_tools(mcp):
     # Typed effects and swatch tools over effects.jsx / swatches.jsx
     from illustrator_mcp.tools import appearance_tools
 
+    # Typed text editing (replace, fonts, styling, outlines) over doc_text.jsx
+    from illustrator_mcp.tools import text_tools
+
     return [execute, documents, context, query, import_svg, task_execution, grounding, doc_model_tools,
-            appearance_tools]
+            appearance_tools, text_tools]
 
 __all__ = ["register_tools", "EXPECTED_TOOL_NAMES"]
