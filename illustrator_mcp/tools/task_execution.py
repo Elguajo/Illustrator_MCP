@@ -255,6 +255,7 @@ async def illustrator_execute_task(params: ExecuteTaskInput) -> Union[str, list]
       {type: "layer", layer: "Layer 1"} — all items on layer
       {type: "query", itemType: "PathItem", pattern: "axis_*"} — pattern match
       {type: "all", recursive: true} — all items in document
+      {type: "uuid", uuids: ["412", "415"]} — native uuids from illustrator_inspect
       {type: "id", ids: ["A1", "A2"]} — stable MCP ID targeting
       {type: "id", ids: ["A1"], precondition: {type: "PathItem",
        bounds_screen: [x, y, width, height], tolerance_pt: 0.5}}

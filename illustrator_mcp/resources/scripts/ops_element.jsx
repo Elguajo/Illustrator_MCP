@@ -1363,16 +1363,23 @@ registerOpHandler("element_modify", function (params, targets, ctx) {
                 item.resize(s, s);
             }
 
+            // Fill and stroke go to the paint carriers: a compound path's
+            // child paths, never the compound itself (see paintTargetsOf).
+            var paintItems = paintTargetsOf(item);
+            var pi;
+
             // Fill
             if (params.fill) {
                 var fillColor = new RGBColor();
                 fillColor.red = params.fill.r || 0;
                 fillColor.green = params.fill.g || 0;
                 fillColor.blue = params.fill.b || 0;
-                item.fillColor = fillColor;
-                item.filled = true;
+                for (pi = 0; pi < paintItems.length; pi++) {
+                    paintItems[pi].fillColor = fillColor;
+                    paintItems[pi].filled = true;
+                }
             } else if (params.fill === null || params.fill === false) {
-                item.filled = false;
+                for (pi = 0; pi < paintItems.length; pi++) paintItems[pi].filled = false;
             }
 
             // Stroke
@@ -1381,13 +1388,15 @@ registerOpHandler("element_modify", function (params, targets, ctx) {
                 strokeColor.red = params.stroke.r || 0;
                 strokeColor.green = params.stroke.g || 0;
                 strokeColor.blue = params.stroke.b || 0;
-                item.strokeColor = strokeColor;
-                item.stroked = true;
-                if (params.stroke.width) {
-                    item.strokeWidth = params.stroke.width;
+                for (pi = 0; pi < paintItems.length; pi++) {
+                    paintItems[pi].strokeColor = strokeColor;
+                    paintItems[pi].stroked = true;
+                    if (params.stroke.width) {
+                        paintItems[pi].strokeWidth = params.stroke.width;
+                    }
                 }
             } else if (params.stroke === null || params.stroke === false) {
-                item.stroked = false;
+                for (pi = 0; pi < paintItems.length; pi++) paintItems[pi].stroked = false;
             }
 
             // Opacity

@@ -176,13 +176,13 @@ function validatePayload(payload) {
                 "targets.type is required",
                 "validate"
             ));
-        } else if (["selection", "layer", "all", "query", "compound", "id", "spatial"].indexOf(target.type) < 0) {
+        } else if (["selection", "layer", "all", "query", "compound", "id", "uuid", "spatial"].indexOf(target.type) < 0) {
             errors.push(makeError(
                 ErrorCodes.V_UNKNOWN_TARGET_TYPE,
                 "Unknown target type: " + target.type,
                 "validate",
                 null,
-                { validTypes: ["selection", "layer", "all", "query", "compound", "id", "spatial"] }
+                { validTypes: ["selection", "layer", "all", "query", "compound", "id", "uuid", "spatial"] }
             ));
         } else if (target.type === "layer" && !target.layer) {
             errors.push(makeError(
@@ -196,6 +196,25 @@ function validatePayload(payload) {
                 "targets.anyOf is required when type='compound'",
                 "validate"
             ));
+        } else if (target.type === "uuid") {
+            if (!target.uuids || !(target.uuids instanceof Array) || target.uuids.length === 0) {
+                errors.push(makeError(
+                    ErrorCodes.V_MISSING_REQUIRED_PARAM,
+                    "targets.uuids is required when type='uuid'",
+                    "validate"
+                ));
+            } else {
+                for (var uv = 0; uv < target.uuids.length; uv++) {
+                    if (typeof target.uuids[uv] !== "string" || !target.uuids[uv]) {
+                        errors.push(makeError(
+                            ErrorCodes.V_INVALID_PARAM_TYPE,
+                            "targets.uuids must contain non-empty strings",
+                            "validate"
+                        ));
+                        break;
+                    }
+                }
+            }
         } else if (target.type === "id") {
             if (!target.ids || !(target.ids instanceof Array) || target.ids.length === 0) {
                 errors.push(makeError(

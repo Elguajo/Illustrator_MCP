@@ -341,7 +341,9 @@
                 "validateOp",
                 "resolveTargets",
                 "executeOpBatch",
-                "profileOp"
+                "profileOp",
+                "paintTargetsOf",
+                "paintSourceOf"
             ],
             "description": "SOC operation batch executor with heap-based ID targeting, validation, and transactional index lifecycle"
         },
@@ -453,7 +455,8 @@
             "exports": [
                 "extractMcpId",
                 "setMcpId",
-                "removeIdFromNote"
+                "removeIdFromNote",
+                "resolvePageItemByUuid"
             ],
             "description": "MCP ID utilities: extraction, assignment, note manipulation, and targeted index removal"
         },
@@ -606,6 +609,60 @@
                 "_socAssert"
             ],
             "description": "SOC integration test harness. Run runSOCTests() to verify all contracts."
+        },
+        "doc_model": {
+            "file": "doc_model.jsx",
+            "version": "1.0.0",
+            "dependencies": [
+                "polyfills",
+                "mcp_id"
+            ],
+            "exports": [
+                "dmFail",
+                "dmRound",
+                "dmToYDown",
+                "dmToYUp",
+                "dmUuid",
+                "dmMcpId",
+                "dmResolveUuids",
+                "dmLayerPath",
+                "dmFindLayer",
+                "dmFindLayerByName",
+                "dmIsHidden",
+                "dmIsLocked",
+                "dmVisibleBounds",
+                "dmChildren",
+                "dmChildTypes",
+                "dmNode",
+                "dmStructure",
+                "dmResumeHint",
+                "dmIntersects",
+                "dmArtboardEntry",
+                "dmResolveArtboardIndex",
+                "dmArtboardView",
+                "dmSelectionView",
+                "dmHex2",
+                "dmColor",
+                "dmPaintSource",
+                "dmAppearance",
+                "dmFontAvailable",
+                "dmTextDetails",
+                "dmGeometry",
+                "dmDetails",
+                "dmListArtboards",
+                "dmArtboardCreate",
+                "dmAnchorFrac",
+                "dmArtboardUpdate",
+                "dmMatchOrientation",
+                "dmArtboardDelete",
+                "dmArtboardActivate",
+                "dmUnion",
+                "dmArtboardFit",
+                "dmDocEntry",
+                "dmListDocuments",
+                "dmSwitchDocument"
+            ],
+            "description": "Document model for typed tools: native-uuid inspection (structure/artboard/selection/details), artboard and document operations. Canvas-global Y-down bounds."
         }
     }
 }

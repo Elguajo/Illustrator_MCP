@@ -22,13 +22,14 @@ class ExportFormat(str, Enum):
 
 class DocumentInput(ToolInputBase):
     """Unified input for document create/open/save/close operations."""
-    action: Literal["create", "open", "save", "close"] = Field(
-        ..., description="Action: 'create', 'open', 'save', or 'close'"
+    action: Literal["create", "open", "save", "close", "list", "switch"] = Field(
+        ..., description="Action: 'create', 'open', 'save', 'close', 'list' (open documents), or 'switch' (activate another open document)"
     )
     # create params
     width: float = Field(default=800, description="Width in points (create)", ge=1, le=16383)
     height: float = Field(default=600, description="Height in points (create)", ge=1, le=16383)
-    name: Optional[str] = Field(default=None, description="Document name (create)", max_length=255)
+    name: Optional[str] = Field(default=None, description="Document name (create), or the open document to activate (switch)", max_length=255)
+    index: Optional[int] = Field(default=None, ge=0, description="0-based index from action='list' of the document to activate (switch)")
     color_mode: str = Field(default="RGB", description="RGB or CMYK (create)")
     # open/save params
     file_path: Optional[str] = Field(default=None, description="File path (required for open, optional for save-as)")
@@ -39,6 +40,8 @@ class DocumentInput(ToolInputBase):
         """Validate action-specific required fields."""
         if self.action == "open" and not self.file_path:
             raise ValueError("file_path is required for action='open'")
+        if self.action == "switch" and self.index is None and not self.name:
+            raise ValueError("index or name is required for action='switch'")
 
 
 class ExportDocumentInput(ToolInputBase):

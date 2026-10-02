@@ -213,7 +213,7 @@ No additional servers or processes needed.
 
 ## Available Tools
 
-This server follows a **Scripting First** architecture: one powerful script executor handles most operations, complemented by purpose-built tools for document I/O, state inspection, and structured queries.
+This server pairs a powerful script executor with typed tools. The typed tools (`illustrator_inspect`, `illustrator_artboards`, document `list`/`switch`) return Illustrator's native PageItem `uuid`, and `illustrator_execute_task` accepts those uuids as a `{"type": "uuid"}` target, so an agent can inspect, pick, and act without writing ExtendScript. Raw script stays the fallback for anything not covered.
 
 Every tool carries a `CONTRACT:` line in its docstring and machine-checkable annotation hints (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) sourced from a canonical `TOOL_ANNOTATIONS` registry in `base.py`. Hints follow the **worst-case capability rule**: if *any* action of a multi-action tool is destructive, the tool is annotated as destructive.
 
@@ -228,7 +228,7 @@ Every tool carries a `CONTRACT:` line in its docstring and machine-checkable ann
 
 | Tool | Description |
 |---|---|
-| `illustrator_document` | Unified document I/O: `action="create"` / `"open"` / `"save"` / `"close"` |
+| `illustrator_document` | Unified document I/O: `action="create"` / `"open"` / `"save"` / `"close"`, plus `"list"` (open documents) and `"switch"` (activate one by `index` or `name`) |
 | `illustrator_export_document` | Export to PNG, JPG, SVG, or PDF with optional visual feedback |
 | `illustrator_place_file` | Place an external file (PNG, JPG, EPS, AI, PDF) with optional editable embed or Image Trace vectorization (`trace=True`) |
 | `illustrator_set_reference` | Place or clear a locked reference image on a background layer. Returns dominant colors for palette matching. |
@@ -239,12 +239,19 @@ Every tool carries a `CONTRACT:` line in its docstring and machine-checkable ann
 |---|---|
 | `illustrator_history` | Undo/redo actions (multi-step count), plus named checkpoint management: `checkpoint_save`, `checkpoint_restore`, `checkpoint_list`, `checkpoint_delete` |
 
-### Context & Inspection (2)
+### Context & Inspection (3)
 
 | Tool | Description |
 |---|---|
+| `illustrator_inspect` | Progressive inspection keyed by native `uuid`: `view="structure"` (layer/group tree with `max_depth`), `"artboard"` (everything overlapping one artboard), `"selection"`, `"details"` (fill/stroke incl. gradients, font runs with missing-font flag, anchor counts). Size-capped views return `truncated` + `resume_hint`. |
 | `illustrator_get_document` | Full document tree + optional app info via `scope` param (`"document"`, `"app"`, `"both"`) |
 | `illustrator_ground_object` | Turn `[N]` from an annotated preview into verified PageItem metadata and a stable `@mcp:id`; default is non-mutating. |
+
+### Artboards (1)
+
+| Tool | Description |
+|---|---|
+| `illustrator_artboards` | `list`, `create`, `update` (rename, resize around an anchor, move, exact bounds), `delete` (keeps artwork; refuses the last artboard), `activate`, `fit` (to the artboard's art, all art, selection, or uuids, with padding), and `presets` (A4, Letter, Instagram Story, HD 1080p, ...). |
 
 ### Path Operations (2)
 
@@ -260,7 +267,7 @@ Every tool carries a `CONTRACT:` line in its docstring and machine-checkable ann
 | `illustrator_query_items` | Declarative item query via the Task Protocol (target selectors, stable refs). Defaults to selection info when no targets given. |
 | `illustrator_preflight_check` | Read-only validation: off-artboard items, zero-size items, empty text, locked layers |
 
-**Total: 13 tools.** Scripting reference and linked-item refresh are available as MCP resources.
+**Total: 15 tools.** Scripting reference and linked-item refresh are available as MCP resources.
 
 ---
 
@@ -467,6 +474,28 @@ the expected snapshot and actual normalized PageItem metadata. A successful
 Task Protocol report exposes the same metadata in `resolvedTargets`: `mcp_id`,
 `item_ref`, `typename`, visible/geometric Illustrator bounds, screen-space
 bounds, active-artboard metadata, and visibility/editability state.
+
+### Inspect, then act by uuid
+
+`illustrator_inspect` returns Illustrator's native `PageItem.uuid` for every
+object. Pass it straight to the Task Protocol; no `@mcp:id` tagging (and no
+`item.note` mutation) is needed:
+
+```python
+illustrator_inspect(view="artboard")                       # -> nodes[].uuid
+illustrator_inspect(view="details", uuids=["484"])          # exact paint, fonts
+illustrator_execute_task(payload={
+  "task": "style_set_fill",
+  "targets": {"type": "uuid", "uuids": ["484"]},
+  "params": {"r": 0, "g": 160, "b": 80},
+})
+```
+
+A uuid is session-scoped: Illustrator reissues uuids for new objects when the
+file is closed and reopened, so use `@mcp:id` when an identity must survive a
+reopen. A missing, hidden, or locked uuid target fails the collect stage rather
+than being skipped. Layers and artboards have no uuid; address them by layer
+path and artboard index or name.
 
 ### Auto-Grounding
 

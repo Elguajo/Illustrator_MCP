@@ -5,7 +5,7 @@ SCRIPTING FIRST ARCHITECTURE:
 This MCP uses a minimal toolset following the blender-mcp pattern.
 Most operations should be done via illustrator_execute_script.
 
-Consolidated tool inventory (13 tools):
+Consolidated tool inventory (15 tools):
 - execute_script: Run any ExtendScript code
 - execute_task: Structured task protocol operations
 - document: Create/open/save/close documents (unified)
@@ -19,6 +19,8 @@ Consolidated tool inventory (13 tools):
 - path_boolean: Boolean path operations
 - path_import_svg: SVG path data import
 - ground_object: resolve an annotated-preview label to PageItem metadata and @mcp:id
+- inspect: progressive structure/artboard/selection/details views keyed by native uuid
+- artboards: list/create/update/delete/activate/fit artboards, named size presets
 """
 
 # Authoritative list of expected tool names (single source of truth).
@@ -37,6 +39,8 @@ EXPECTED_TOOL_NAMES = {
     "illustrator_path_boolean",
     "illustrator_path_import_svg",
     "illustrator_ground_object",
+    "illustrator_inspect",
+    "illustrator_artboards",
 }
 
 
@@ -66,6 +70,9 @@ def register_tools(mcp):
     # Visual label → PageItem identity grounding
     from illustrator_mcp.tools import grounding
 
-    return [execute, documents, context, query, import_svg, task_execution, grounding]
+    # Typed document-model tools (inspect, artboards) over doc_model.jsx
+    from illustrator_mcp.tools import doc_model_tools
+
+    return [execute, documents, context, query, import_svg, task_execution, grounding, doc_model_tools]
 
 __all__ = ["register_tools", "EXPECTED_TOOL_NAMES"]

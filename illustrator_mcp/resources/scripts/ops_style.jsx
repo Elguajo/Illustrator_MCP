@@ -47,8 +47,11 @@ registerOpHandler("style_set_fill", function (params, targets, ctx) {
 
     for (var i = 0; i < targets.length; i++) {
         try {
-            targets[i].fillColor = color;
-            targets[i].filled = true;
+            var fillTargets = paintTargetsOf(targets[i]);
+            for (var f = 0; f < fillTargets.length; f++) {
+                fillTargets[f].fillColor = color;
+                fillTargets[f].filled = true;
+            }
             modified++;
         } catch (e) {
             warnings.push("Failed to set fill on item " + i + ": " + e.message);
@@ -86,11 +89,14 @@ registerOpHandler("style_set_stroke", function (params, targets, ctx) {
 
     for (var i = 0; i < targets.length; i++) {
         try {
-            if (color) {
-                targets[i].strokeColor = color;
+            var strokeTargets = paintTargetsOf(targets[i]);
+            for (var st = 0; st < strokeTargets.length; st++) {
+                if (color) {
+                    strokeTargets[st].strokeColor = color;
+                }
+                strokeTargets[st].stroked = true;
+                strokeTargets[st].strokeWidth = strokeWidth;
             }
-            targets[i].stroked = true;
-            targets[i].strokeWidth = strokeWidth;
             modified++;
         } catch (e) {
             warnings.push("Failed to set stroke on item " + i + ": " + e.message);
@@ -129,7 +135,8 @@ registerOpHandler("style_remove_fill", function (params, targets, ctx) {
     var modified = 0;
     for (var i = 0; i < targets.length; i++) {
         try {
-            targets[i].filled = false;
+            var unfill = paintTargetsOf(targets[i]);
+            for (var uf = 0; uf < unfill.length; uf++) unfill[uf].filled = false;
             modified++;
         } catch (e) { }
     }
@@ -142,7 +149,8 @@ registerOpHandler("style_remove_stroke", function (params, targets, ctx) {
     var modified = 0;
     for (var i = 0; i < targets.length; i++) {
         try {
-            targets[i].stroked = false;
+            var unstroke = paintTargetsOf(targets[i]);
+            for (var us = 0; us < unstroke.length; us++) unstroke[us].stroked = false;
             modified++;
         } catch (e) { }
     }
@@ -304,9 +312,11 @@ registerOpHandler("style_snapshot", function (params, targets, ctx) {
             }
         } catch (e) { }
 
+        var paint = paintSourceOf(item);
+
         // Fill
         try {
-            entry.fill = _serializeColor(item.fillColor, item.filled);
+            entry.fill = _serializeColor(paint.fillColor, paint.filled);
             if (entry.fill.type === "gradient") {
                 warnings.push("Item " + (entry.id || i) + ": gradient fill — summary only");
             }
@@ -316,9 +326,9 @@ registerOpHandler("style_snapshot", function (params, targets, ctx) {
 
         // Stroke
         try {
-            entry.stroke = _serializeColor(item.strokeColor, item.stroked);
-            if (item.stroked) {
-                entry.strokeWidth = Math.round(item.strokeWidth * 100) / 100;
+            entry.stroke = _serializeColor(paint.strokeColor, paint.stroked);
+            if (paint.stroked) {
+                entry.strokeWidth = Math.round(paint.strokeWidth * 100) / 100;
             }
             if (entry.stroke.type === "gradient") {
                 warnings.push("Item " + (entry.id || i) + ": gradient stroke — summary only");
@@ -406,11 +416,12 @@ registerOpHandler("style_clone", function (params, targets, ctx) {
     var srcTextUniform = false;
     var srcTextAttrs = null;
 
-    try { srcFilled = source.filled; } catch (e) { }
-    try { srcFillColor = source.fillColor; } catch (e) { }
-    try { srcStroked = source.stroked; } catch (e) { }
-    try { srcStrokeColor = source.strokeColor; } catch (e) { }
-    try { srcStrokeWidth = source.strokeWidth; } catch (e) { }
+    var srcPaint = paintSourceOf(source);
+    try { srcFilled = srcPaint.filled; } catch (e) { }
+    try { srcFillColor = srcPaint.fillColor; } catch (e) { }
+    try { srcStroked = srcPaint.stroked; } catch (e) { }
+    try { srcStrokeColor = srcPaint.strokeColor; } catch (e) { }
+    try { srcStrokeWidth = srcPaint.strokeWidth; } catch (e) { }
     try { srcOpacity = source.opacity; } catch (e) { }
 
     // Check for gradient/pattern fills — warn but still clone the color object
@@ -451,22 +462,28 @@ registerOpHandler("style_clone", function (params, targets, ctx) {
         var applied = false;
 
         try {
+            var paintTargets = paintTargetsOf(target);
+
             // Fill
             if (propsToClone.fill) {
-                target.filled = srcFilled;
-                if (srcFilled && srcFillColor) {
-                    target.fillColor = srcFillColor;
+                for (var pf = 0; pf < paintTargets.length; pf++) {
+                    paintTargets[pf].filled = srcFilled;
+                    if (srcFilled && srcFillColor) {
+                        paintTargets[pf].fillColor = srcFillColor;
+                    }
                 }
                 applied = true;
             }
 
             // Stroke
             if (propsToClone.stroke) {
-                target.stroked = srcStroked;
-                if (srcStroked && srcStrokeColor) {
-                    target.strokeColor = srcStrokeColor;
+                for (var ps = 0; ps < paintTargets.length; ps++) {
+                    paintTargets[ps].stroked = srcStroked;
+                    if (srcStroked && srcStrokeColor) {
+                        paintTargets[ps].strokeColor = srcStrokeColor;
+                    }
+                    paintTargets[ps].strokeWidth = srcStrokeWidth;
                 }
-                target.strokeWidth = srcStrokeWidth;
                 applied = true;
             }
 
@@ -578,8 +595,11 @@ registerOpHandler("style_set_gradient", function (params, targets, ctx) {
             gc.angle = params.angle || 0;
             if (params.origin) gc.origin = [params.origin.x || 0, params.origin.y || 0];
             if (params.length) gc.length = params.length;
-            targets[i].fillColor = gc;
-            targets[i].filled = true;
+            var gradTargets = paintTargetsOf(targets[i]);
+            for (var gt = 0; gt < gradTargets.length; gt++) {
+                gradTargets[gt].fillColor = gc;
+                gradTargets[gt].filled = true;
+            }
             modified++;
         } catch (e) {
             warnings.push("Failed to apply gradient to item " + i + ": " + e.message);

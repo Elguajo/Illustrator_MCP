@@ -58,3 +58,42 @@ function removeIdFromNote(note) {
     if (!note) return "";
     return note.replace(/@mcp:id=[^\s@]+/, "").replace(/\s{2,}/g, " ").replace(/^\s+|\s+$/g, "");
 }
+
+// ==================== Native uuid resolution ====================
+
+/**
+ * Resolve Illustrator's native PageItem.uuid (AI 24+) to its PageItem.
+ *
+ * Two behaviours observed live on Illustrator 30.8.1 shape this function:
+ *  - getPageItemFromUuid() THROWS on an unknown uuid instead of returning
+ *    null, so a miss is caught and reported as null.
+ *  - For a CompoundPathItem it returns a different object typed GroupItem
+ *    (same uuid, same parent). Code that then sets fillColor on that
+ *    "group" fails or silently does nothing. The real CompoundPathItem is
+ *    recovered from the wrapper's parent by uuid.
+ *
+ * @param {Document} doc
+ * @param {string} uuid
+ * @returns {PageItem|null}
+ */
+function resolvePageItemByUuid(doc, uuid) {
+    var key = String(uuid);
+    var found = null;
+    try {
+        found = doc.getPageItemFromUuid(key);
+    } catch (e) {
+        return null;
+    }
+    if (!found) return null;
+    if (found.typename === "GroupItem") {
+        try {
+            var siblings = found.parent.compoundPathItems;
+            for (var i = 0; i < siblings.length; i++) {
+                if (String(siblings[i].uuid) === key) return siblings[i];
+            }
+        } catch (e2) {
+            // Parent without compoundPathItems: the GroupItem is genuine.
+        }
+    }
+    return found;
+}

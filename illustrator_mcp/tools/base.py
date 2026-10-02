@@ -45,6 +45,8 @@ TOOL_ANNOTATIONS: dict[str, dict] = {
     "illustrator_query_items":     {"readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True,  "openWorldHint": False},
     "illustrator_preflight_check": {"readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True,  "openWorldHint": False},
     "illustrator_path_import_svg": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+    "illustrator_inspect":         {"readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True,  "openWorldHint": False},
+    "illustrator_artboards":       {"readOnlyHint": False, "destructiveHint": True,  "idempotentHint": False, "openWorldHint": False},
     # assign_id is an explicit opt-in mutation of PageItem.note; default mode is read-only.
     "illustrator_ground_object": {"readOnlyHint": False, "destructiveHint": True,  "idempotentHint": False, "openWorldHint": False},
 }

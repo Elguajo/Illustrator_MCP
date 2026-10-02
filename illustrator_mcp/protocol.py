@@ -126,8 +126,22 @@ class IdTarget(BaseModel):
     )
 
 
+class UuidTarget(BaseModel):
+    """Target existing PageItems by Illustrator's native, session-scoped ``uuid``.
+
+    uuids come from illustrator_inspect. A missing, hidden, or locked item
+    fails the collect stage rather than being skipped.
+    """
+    type: Literal["uuid"] = "uuid"
+    uuids: List[str] = Field(
+        ...,
+        min_length=1,
+        description="Native PageItem uuids as returned by illustrator_inspect",
+    )
+
+
 # Compound selector
-SimpleTarget = Union[SelectionTarget, LayerTarget, AllTarget, QueryTarget, IdTarget]
+SimpleTarget = Union[SelectionTarget, LayerTarget, AllTarget, QueryTarget, IdTarget, UuidTarget]
 
 
 class CompoundTarget(BaseModel):
@@ -154,7 +168,7 @@ class TargetSelector(BaseModel):
     The 'orderBy' field ensures deterministic result ordering.
     """
     target: Annotated[
-        Union[SelectionTarget, LayerTarget, AllTarget, QueryTarget, IdTarget, CompoundTarget],
+        Union[SelectionTarget, LayerTarget, AllTarget, QueryTarget, IdTarget, UuidTarget, CompoundTarget],
         Field(discriminator='type')
     ]
     orderBy: OrderBy = Field(
@@ -384,7 +398,7 @@ class TaskPayload(BaseModel):
     """Standard task payload."""
     task: str = Field(..., description="Task type: draw_shapes, apply_styles, query_items")
     version: str = Field(default=TASK_PROTOCOL_VERSION, description="Protocol version")
-    targets: Optional[Union[TargetSelector, IdTarget, Dict[str, Any]]] = Field(
+    targets: Optional[Union[TargetSelector, IdTarget, UuidTarget, Dict[str, Any]]] = Field(
         default=None,
         description="Target selector (structured or legacy dict)"
     )

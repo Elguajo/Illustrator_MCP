@@ -7,7 +7,44 @@ History before 3.1.0 was not tracked here; see `git log` for it.
 
 ## [Unreleased]
 
+### Added
+
+- **Typed tools keyed by Illustrator's native `PageItem.uuid`** (first step of
+  the hybrid toolset in `docs/ADOBE_MCPTOOLKIT_STUDY.md`):
+  - `illustrator_inspect` — progressive views: `structure` (breadth-first
+    layer/group tree, `max_depth`, never half-lists a container), `artboard`,
+    `selection`, and `details` (fill/stroke incl. gradients and spots, font
+    runs with a missing-font flag, anchor counts). Capped views return
+    `truncated` and a `resume_hint`; unknown uuids land in `failed_objects`.
+  - `illustrator_artboards` — `list`, `create`, `update` (rename, resize around
+    a 9-point anchor, move, exact bounds), `delete` (keeps artwork, refuses the
+    last artboard), `activate`, `fit` (computed from bounds, selection
+    untouched), and named `presets` that keep the target's orientation.
+  - `illustrator_document` gains `list` and `switch`.
+  - Task Protocol target `{"type": "uuid", "uuids": [...]}`: O(1) resolution
+    instead of the `@mcp:id` scan of `doc.pageItems`; a missing, hidden, or
+    locked item fails collect.
+  - All new bounds are canvas-global, Y-down, in the same space as artboard
+    bounds. Request errors (unknown artboard, last-artboard delete, nothing to
+    fit) return `V011` with their own message instead of `E999` "review script
+    syntax".
+
 ### Fixed
+
+- **Fill and stroke edits on compound paths were silent no-ops.**
+  `style_set_fill`, `style_set_stroke`, `style_remove_fill`,
+  `style_remove_stroke`, `style_set_gradient`, `style_clone`, and
+  `element_modify` wrote paint to the `CompoundPathItem` itself, which has no
+  paint of its own: Illustrator accepted the write, the op reported
+  "1 modified", and the artwork kept its old color (confirmed live on 30.8.1 by
+  reading the fill back). Paint now goes to every child path through
+  `paintTargetsOf`; `style_snapshot` and `style_clone` read it from the first
+  child. Same defect class as the earlier `path_boolean` fill loss.
+
+- Worked around an Illustrator quirk: `getPageItemFromUuid()` returns a
+  *different* object typed `GroupItem` for a `CompoundPathItem`, and throws on
+  an unknown uuid. `resolvePageItemByUuid` (`mcp_id.jsx`) recovers the real
+  compound path from the wrapper's parent and turns a miss into `null`.
 
 - `illustrator_preflight_check` is fixed after being completely non-functional:
   it always returned `ok: true, result: {}` regardless of document state,

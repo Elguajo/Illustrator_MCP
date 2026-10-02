@@ -64,14 +64,20 @@ All ID index mutations must be **transaction-scoped** and reversible within a ba
 
 | Store | Role | When Set |
 |-------|------|----------|
-| `item.note` containing `@mcp:id=UUID` | **Canonical** — always authoritative | On item creation |
+| `item.note` containing `@mcp:id=UUID` | **Canonical** — always authoritative, survives close/reopen | On item creation |
 | `item.name = "mcp:" + UUID` | **Optional accelerator** — for faster `getByName` resync | On MCP-created items only |
+| Native `PageItem.uuid` (AI 24+) | **Session handle** — O(1), no document mutation; reissued for new items after close/reopen | Always present; never written |
 
 ### Rules
 
 - Never trust `item.name` alone — always verify via `extractMcpId(item.note)`
 - `item.name` accelerator is opt-in and disabled by default
 - Non-MCP items (user-created) must never have their name overwritten
+- Resolve native uuids only through `resolvePageItemByUuid` (`mcp_id.jsx`): raw
+  `getPageItemFromUuid()` throws on a miss and returns a `GroupItem` wrapper for
+  compound paths
+- Paint (fill/stroke) goes through `paintTargetsOf` (`ops_core.jsx`): a
+  `CompoundPathItem` accepts paint writes silently without applying them
 
 ---
 

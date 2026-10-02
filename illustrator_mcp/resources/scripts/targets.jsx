@@ -689,6 +689,49 @@ function resolveGroundedIdTargets(doc, target) {
 }
 
 /**
+ * Resolve a {type: "uuid", uuids: [...]} target through Illustrator's native
+ * PageItem.uuid (see resolvePageItemByUuid in mcp_id.jsx). O(1) per uuid,
+ * unlike @mcp:id targets which scan doc.pageItems.
+ * Same safety contract as grounded id targets: a missing, hidden or locked
+ * item fails the collect stage instead of being silently skipped.
+ * @param {Document} doc
+ * @param {Object} target
+ * @returns {Array<PageItem>}
+ */
+function resolveUuidTargets(doc, target) {
+    var requested = target.uuids || [];
+    var seen = {};
+    var items = [];
+    for (var i = 0; i < requested.length; i++) {
+        var key = String(requested[i]);
+        if (seen[key]) continue;
+        seen[key] = true;
+        var item = resolvePageItemByUuid(doc, key);
+        if (!item) {
+            groundedTargetError(ErrorCodes.R_ELEMENT_NOT_FOUND,
+                "uuid target was not found: " + key,
+                { reason: "missing_uuid", uuid: key });
+        }
+        var hidden = false;
+        var locked = false;
+        try { hidden = !!item.hidden || (item.layer && !item.layer.visible); } catch (e) { }
+        try { locked = !!item.locked || (item.layer && item.layer.locked); } catch (e2) { }
+        if (hidden) {
+            groundedTargetError(ErrorCodes.R_COLLECT_FAILED,
+                "uuid target is hidden: " + key,
+                { reason: "hidden_target", uuid: key, typename: item.typename });
+        }
+        if (locked) {
+            groundedTargetError(ErrorCodes.R_COLLECT_FAILED,
+                "uuid target is locked: " + key,
+                { reason: "locked_target", uuid: key, typename: item.typename });
+        }
+        items.push(item);
+    }
+    return items;
+}
+
+/**
  * Declarative target selection (v2.3)
  * Recursively collects items from targets.
  * NOTE: Global filtering and ordering are handled in executeTask.
@@ -722,6 +765,9 @@ function collectTargets(doc, target) {
     }
     else if (type === "id") {
         items = resolveGroundedIdTargets(doc, target);
+    }
+    else if (type === "uuid") {
+        items = resolveUuidTargets(doc, target);
     }
     else if (type === "spatial") {
         // C3: Spatial query targets

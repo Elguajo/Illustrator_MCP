@@ -188,8 +188,9 @@ class TestStyleClone:
         """If source has filled=false, clone should set target.filled=false."""
         src = _read(OPS_STYLE)
         start = src.index('registerOpHandler("style_clone"')
-        section = src[start:start + 4000]
-        assert "target.filled = srcFilled" in section
+        section = src[start:start + 5000]
+        # Written to each paint carrier (a compound's child paths) — see paintTargetsOf.
+        assert "paintTargets[pf].filled = srcFilled" in section
 
     def test_warns_mixed_source_text(self):
         src = _read(OPS_STYLE)

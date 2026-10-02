@@ -45,6 +45,9 @@
               },
               {
                 "$ref": "#/$defs/IdTarget"
+              },
+              {
+                "$ref": "#/$defs/UuidTarget"
               }
             ]
           },
@@ -295,6 +298,31 @@
       },
       "title": "SelectionTarget",
       "type": "object"
+    },
+    "UuidTarget": {
+      "description": "Target existing PageItems by Illustrator's native, session-scoped ``uuid``.\n\nuuids come from illustrator_inspect. A missing, hidden, or locked item\nfails the collect stage rather than being skipped.",
+      "properties": {
+        "type": {
+          "const": "uuid",
+          "default": "uuid",
+          "title": "Type",
+          "type": "string"
+        },
+        "uuids": {
+          "description": "Native PageItem uuids as returned by illustrator_inspect",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Uuids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "uuids"
+      ],
+      "title": "UuidTarget",
+      "type": "object"
     }
   },
   "description": "Complete target selector with ordering.\n\nThe 'target' field can be a simple selector or compound.\nThe 'orderBy' field ensures deterministic result ordering.",
@@ -307,7 +335,8 @@
           "id": "#/$defs/IdTarget",
           "layer": "#/$defs/LayerTarget",
           "query": "#/$defs/QueryTarget",
-          "selection": "#/$defs/SelectionTarget"
+          "selection": "#/$defs/SelectionTarget",
+          "uuid": "#/$defs/UuidTarget"
         },
         "propertyName": "type"
       },
@@ -326,6 +355,9 @@
         },
         {
           "$ref": "#/$defs/IdTarget"
+        },
+        {
+          "$ref": "#/$defs/UuidTarget"
         },
         {
           "$ref": "#/$defs/CompoundTarget"

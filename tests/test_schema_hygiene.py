@@ -212,7 +212,8 @@ class TestStyleSnapshotQuantization:
 
     def test_rounds_stroke_width(self):
         section = self._get_snapshot_section()
-        assert "Math.round(item.strokeWidth" in section
+        # Paint is read through paintSourceOf (a compound's first child path).
+        assert "Math.round(paint.strokeWidth" in section
 
     def test_rounds_opacity(self):
         section = self._get_snapshot_section()

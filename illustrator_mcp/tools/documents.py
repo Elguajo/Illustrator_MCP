@@ -23,6 +23,7 @@ from illustrator_mcp.shared import mcp
 from illustrator_mcp import templates
 from illustrator_mcp.tools.base import execute_jsx_tool, TOOL_ANNOTATIONS
 from illustrator_mcp.utils import escape_path_for_jsx
+from illustrator_mcp.tools.doc_model_tools import run_dm
 # Re-export for backward-compat: tests patch these at
 # "illustrator_mcp.tools.documents.execute_script_with_context"
 from illustrator_mcp.proxy_client import (            # noqa: F401
@@ -68,7 +69,7 @@ _DOC_NAME = "illustrator_document"
 
 @mcp.tool(name=_DOC_NAME, annotations=TOOL_ANNOTATIONS[_DOC_NAME])
 async def illustrator_document(params: DocumentInput) -> str:
-    """Create, open, save, or close an Illustrator document.
+    """Create, open, save, close, list, or switch Illustrator documents.
 
     CONTRACT: readOnly=False, destructive=True, idempotent=False, openWorld=True
 
@@ -77,16 +78,22 @@ async def illustrator_document(params: DocumentInput) -> str:
       - Opening an existing .ai file (action='open', file_path required)
       - Saving current work (action='save', file_path for save-as)
       - Closing the active document (action='close')
+      - Seeing which documents are open (action='list')
+      - Making another open document active (action='switch', index or name)
 
     EXAMPLES:
       illustrator_document(action="create", width=800, height=600, color_mode="RGB")
       illustrator_document(action="open", file_path="C:/art/figure.ai")
       illustrator_document(action="save", file_path="C:/art/figure_v2.ai")
       illustrator_document(action="close", save_before_close=True)
+      illustrator_document(action="list")
+      illustrator_document(action="switch", name="poster.ai")
 
     NOTES:
       - close without save_before_close=True discards unsaved changes
       - open/save interact with the filesystem (openWorld)
+      - list/switch indices follow Illustrator's document order, which changes when
+        another document becomes active; switch returns the new active document
     """
     action = params.action
 
@@ -130,6 +137,17 @@ async def illustrator_document(params: DocumentInput) -> str:
             command_type="save_document",
             tool_name="illustrator_document",
             params={"action": action, "file_path": params.file_path}
+        )
+    elif action in ("list", "switch"):
+        payload = {"index": params.index, "name": params.name} if action == "switch" else {}
+        call = "dmListDocuments()" if action == "list" else "dmSwitchDocument(P)"
+        return await run_dm(
+            call,
+            payload,
+            command_type=f"{action}_documents",
+            tool_name="illustrator_document",
+            needs_doc=False,
+            log_params={"action": action, **payload},
         )
     elif action == "close":
         save_opt = "SaveOptions.SAVECHANGES" if params.save_before_close else "SaveOptions.DONOTSAVECHANGES"

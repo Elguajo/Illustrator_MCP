@@ -51,6 +51,37 @@ function generateUUID() {
     return "mcp_" + s.join("");
 }
 
+// ==================== Paint Targets ====================
+
+/**
+ * The objects that actually carry paint for an item.
+ *
+ * A CompoundPathItem has no fill or stroke of its own: assigning
+ * fillColor/filled/strokeColor on it raises nothing and reads back the
+ * written value while the document is untouched (confirmed live on
+ * Illustrator 30.8.1: style_set_fill reported "1 modified", the compound
+ * kept its color). Illustrator paints a compound through its member paths,
+ * so paint goes to every child path. Same rule as geo_boolean's
+ * _applyStyleDeep. Used by ops_style and element_modify.
+ *
+ * @param {PageItem} item
+ * @returns {Array<PageItem>}
+ */
+function paintTargetsOf(item) {
+    if (item.typename === "CompoundPathItem") {
+        var out = [];
+        for (var i = 0; i < item.pathItems.length; i++) out.push(item.pathItems[i]);
+        return out;
+    }
+    return [item];
+}
+
+/** The object to read paint from: a compound reports its first child path. */
+function paintSourceOf(item) {
+    if (item.typename === "CompoundPathItem" && item.pathItems.length > 0) return item.pathItems[0];
+    return item;
+}
+
 // ==================== Op Handler Registry ====================
 
 var OP_HANDLERS = {};
@@ -117,7 +148,7 @@ function validateOp(op, strict) {
     // Targets validation
     if (op.targets) {
         var targetType = op.targets.type;
-        var allowedTypes = ["id", "query", "selection", "layer", "all", "spatial", "compound"];
+        var allowedTypes = ["id", "uuid", "query", "selection", "layer", "all", "spatial", "compound"];
         var found = false;
         for (var i = 0; i < allowedTypes.length; i++) {
             if (allowedTypes[i] === targetType) { found = true; break; }
@@ -213,8 +244,8 @@ function resolveTargets(doc, targets, ctx) {
     // Phase 3 ID handoff. Never cache ID targets: an earlier operation in the
     // same batch can hide, lock, retag, or replace an item before the next
     // handler runs, so every ID resolution must inspect current DOM state.
-    if (targets.type === "id") {
-        var ids = targets.ids || [];
+    if (targets.type === "id" || targets.type === "uuid") {
+        var ids = targets.ids || targets.uuids || [];
         ctx.diagnostics.cacheMisses++;
         return collectTargets(doc, targets);
     }

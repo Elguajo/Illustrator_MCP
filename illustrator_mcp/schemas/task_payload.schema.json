@@ -45,6 +45,9 @@
               },
               {
                 "$ref": "#/$defs/IdTarget"
+              },
+              {
+                "$ref": "#/$defs/UuidTarget"
               }
             ]
           },
@@ -381,7 +384,8 @@
               "id": "#/$defs/IdTarget",
               "layer": "#/$defs/LayerTarget",
               "query": "#/$defs/QueryTarget",
-              "selection": "#/$defs/SelectionTarget"
+              "selection": "#/$defs/SelectionTarget",
+              "uuid": "#/$defs/UuidTarget"
             },
             "propertyName": "type"
           },
@@ -400,6 +404,9 @@
             },
             {
               "$ref": "#/$defs/IdTarget"
+            },
+            {
+              "$ref": "#/$defs/UuidTarget"
             },
             {
               "$ref": "#/$defs/CompoundTarget"
@@ -513,6 +520,31 @@
       },
       "title": "TaskOptions",
       "type": "object"
+    },
+    "UuidTarget": {
+      "description": "Target existing PageItems by Illustrator's native, session-scoped ``uuid``.\n\nuuids come from illustrator_inspect. A missing, hidden, or locked item\nfails the collect stage rather than being skipped.",
+      "properties": {
+        "type": {
+          "const": "uuid",
+          "default": "uuid",
+          "title": "Type",
+          "type": "string"
+        },
+        "uuids": {
+          "description": "Native PageItem uuids as returned by illustrator_inspect",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Uuids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "uuids"
+      ],
+      "title": "UuidTarget",
+      "type": "object"
     }
   },
   "description": "Standard task payload.",
@@ -535,6 +567,9 @@
         },
         {
           "$ref": "#/$defs/IdTarget"
+        },
+        {
+          "$ref": "#/$defs/UuidTarget"
         },
         {
           "additionalProperties": true,
