@@ -33,7 +33,8 @@ def load_script(name: str, *, params: Optional[Dict[str, Any]] = None) -> str:
     resolved_code = get_resolver().resolve(
         [name], skip_collision_check=True
     )
-    params_json = json.dumps(params or {}, ensure_ascii=False)
+    # ensure_ascii keeps U+2028/U+2029 escaped (ES3 line terminators).
+    params_json = json.dumps(params or {}, ensure_ascii=True)
     return f"var __PARAMS__ = {params_json};\n{resolved_code}"
 
 

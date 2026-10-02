@@ -4,6 +4,7 @@ History (undo/redo/checkpoint) tool for Adobe Illustrator.
 Extracted from documents.py for readability.
 """
 
+import json
 from typing import Literal, Optional
 
 from pydantic import Field
@@ -53,8 +54,9 @@ async def _handle_checkpoint(params: HistoryInput) -> str:
     if params.action == "checkpoint_list":
         name_arg = ""
     else:
-        escaped_name = params.name.replace("\\", "\\\\").replace('"', '\\"')
-        name_arg = f'"{ escaped_name}", '
+        # json.dumps escapes quotes, newlines and U+2028/U+2029, all of
+        # which would otherwise end the ES3 string literal.
+        name_arg = f"{json.dumps(params.name)}, "
 
     script = templates.CHECKPOINT_ACTION.substitute(
         jsx_fn=jsx_fn,
