@@ -62,14 +62,20 @@ async def run_dm(
     tool_name: str,
     needs_doc: bool = True,
     log_params: Optional[dict] = None,
+    includes: Optional[List[str]] = None,
+    suggestions: Optional[List[str]] = None,
 ) -> str:
-    """Execute one doc_model call and map dmFail() request errors to V011."""
+    """Execute one doc_model call and map dmFail() request errors to V011.
+
+    ``includes`` adds libraries built on doc_model (dmFail must be loaded);
+    ``suggestions`` replaces the default V011 hints.
+    """
     raw = await execute_jsx_tool(
         script=dm_script(call, payload, needs_doc=needs_doc),
         command_type=command_type,
         tool_name=tool_name,
         params=log_params if log_params is not None else payload,
-        includes=_INCLUDES,
+        includes=includes or _INCLUDES,
     )
     try:
         env = json.loads(raw)
@@ -82,7 +88,7 @@ async def run_dm(
             error={
                 "code": "V011",
                 "message": result[_REQUEST_ERROR_KEY],
-                "suggestions": [
+                "suggestions": suggestions or [
                     "This is a request error, not a script error: fix the value named in the message",
                     "List valid targets with illustrator_artboards(action='list') or illustrator_inspect",
                 ],
