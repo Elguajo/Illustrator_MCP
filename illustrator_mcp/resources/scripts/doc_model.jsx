@@ -8,12 +8,13 @@
  * IDENTITY
  *   PageItems are addressed by Illustrator's native PageItem.uuid (AI 24+),
  *   resolved with resolvePageItemByUuid() (mcp_id.jsx), which works around
- *   two getPageItemFromUuid() quirks. Observed on AI 30.8.1: uuid is a short
+ *   three getPageItemFromUuid() quirks. Observed on AI 30.8.1: uuid is a short
  *   numeric string, survives moves and regrouping, and is new on
  *   duplicate(). Layers and artboards have no uuid: layers are addressed by name
  *   path ("Layer 1/Sub"), artboards by index or name.
- *   A uuid is session-scoped; @mcp:id in item.note remains the identity
- *   that survives close/reopen, so both are reported.
+ *   A uuid is a per-document counter renumbered on every reopen; @mcp:id in
+ *   item.note remains the identity that survives close/reopen, so both are
+ *   reported.
  *
  * COORDINATES
  *   Every bounds value returned or accepted here is canvas-global points,

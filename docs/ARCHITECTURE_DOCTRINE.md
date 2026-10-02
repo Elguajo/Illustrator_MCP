@@ -66,7 +66,7 @@ All ID index mutations must be **transaction-scoped** and reversible within a ba
 |-------|------|----------|
 | `item.note` containing `@mcp:id=UUID` | **Canonical** — always authoritative, survives close/reopen | On item creation |
 | `item.name = "mcp:" + UUID` | **Optional accelerator** — for faster `getByName` resync | On MCP-created items only |
-| Native `PageItem.uuid` (AI 24+) | **Session handle** — O(1), no document mutation; reissued for new items after close/reopen | Always present; never written |
+| Native `PageItem.uuid` (AI 24+) | **Session handle** — O(1), no document mutation. Observed on AI 30.8.1: a per-document counter, not stored in the file; renumbered in document order on every load (deterministic for an unchanged file, shifted by edits), collides across open documents, and `getPageItemFromUuid()` resolves only in the active document | Always present; never written |
 
 ### Rules
 
@@ -75,7 +75,10 @@ All ID index mutations must be **transaction-scoped** and reversible within a ba
 - Non-MCP items (user-created) must never have their name overwritten
 - Resolve native uuids only through `resolvePageItemByUuid` (`mcp_id.jsx`): raw
   `getPageItemFromUuid()` throws on a miss and returns a `GroupItem` wrapper for
-  compound paths
+  compound paths; pass `app.activeDocument`, because the lookup ignores
+  its receiver document
+- Never persist a native uuid across a close/reopen or a document switch; use
+  `@mcp:id` for that
 - Paint (fill/stroke) goes through `paintTargetsOf` (`ops_core.jsx`): a
   `CompoundPathItem` accepts paint writes silently without applying them
 

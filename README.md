@@ -491,10 +491,15 @@ illustrator_execute_task(payload={
 })
 ```
 
-A uuid is session-scoped: Illustrator reissues uuids for new objects when the
-file is closed and reopened, so use `@mcp:id` when an identity must survive a
-reopen. A missing, hidden, or locked uuid target fails the collect stage rather
-than being skipped. Layers and artboards have no uuid; address them by layer
+A uuid is valid only while its document stays open and active. Observed on
+Illustrator 30.8.1: uuids are a per-document counter that is not saved in the
+file; every reopen renumbers all objects in document order, so after an edit and
+a reopen an old uuid can point at a different object. Numbers also repeat across
+open documents, and lookup always runs in the active document. Re-run
+`illustrator_inspect` after a reopen or a document switch, and use `@mcp:id`
+(stored in `item.note`, which survives save, close and reopen) when an identity
+must outlive the session. A missing, hidden, or locked uuid target fails the
+collect stage rather than being skipped. Layers and artboards have no uuid; address them by layer
 path and artboard index or name.
 
 ### Auto-Grounding

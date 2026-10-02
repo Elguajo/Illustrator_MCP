@@ -159,8 +159,12 @@ async def illustrator_inspect(params: InspectInput) -> str:
       nodes; containers beyond max_depth show child_count/child_types instead of
       children. Pass their uuids back as start nodes to go deeper. Use
       view='details' only for the few objects you need to read closely.
-      Every PageItem node carries 'uuid' (session-scoped) and 'mcp_id' when one
-      was assigned (survives save and reopen). Layers have no uuid; they are
+      Every PageItem node carries 'uuid' and 'mcp_id' when one was assigned.
+      A uuid is valid only for the active document while it stays open:
+      Illustrator renumbers uuids on every reopen (edits shift them, so an old
+      uuid can name a different object) and numbers collide across open
+      documents. Re-inspect after a reopen or document switch; 'mcp_id'
+      survives save, close and reopen. Layers have no uuid; they are
       identified by 'layer_path'.
 
     COORDINATE SYSTEM:
