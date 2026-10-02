@@ -290,8 +290,10 @@ class ExecuteScriptInput(ToolInputBase):
             bad_keys = set(self.params.keys()) & self._RESERVED_PARAM_KEYS
             if bad_keys:
                 raise ValueError(f"Reserved param key(s): {bad_keys}")
-            # JSON is valid JS for JSON-serializable values (no undefined, no functions)
-            params_literal = json.dumps(self.params, ensure_ascii=False)
+            # JSON is valid JS for JSON-serializable values (no undefined, no functions).
+            # ensure_ascii keeps U+2028/U+2029 escaped: both are line terminators
+            # in ES3 and are a SyntaxError unescaped inside a string literal.
+            params_literal = json.dumps(self.params, ensure_ascii=True)
             lines = [f"var __PARAMS__ = {params_literal};"]
             if self.params_mode == "EXPOSE_VARS":
                 for key in self.params:
