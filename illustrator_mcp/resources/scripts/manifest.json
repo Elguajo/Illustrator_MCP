@@ -666,6 +666,85 @@
                 "dmSwitchDocument"
             ],
             "description": "Document model for typed tools: native-uuid inspection (structure/artboard/selection/details), artboard and document operations. Canvas-global Y-down bounds."
+        },
+        "effects": {
+            "file": "effects.jsx",
+            "version": "1.0.0",
+            "dependencies": [
+                "polyfills",
+                "mcp_id",
+                "doc_model"
+            ],
+            "exports": [
+                "fxEditBlocker",
+                "fxNum",
+                "fxFillColorString",
+                "fxDropShadowXml",
+                "fxGaussianBlurXml",
+                "fxEffectXml",
+                "fxExpectsGrowth",
+                "fxSameRect",
+                "fxKey",
+                "fxSnapPaint",
+                "fxSnapshot",
+                "fxPaintCarriers",
+                "fxRestorePaint",
+                "fxRestore",
+                "fxDiff",
+                "fxHasStroke",
+                "fxDefaultStyle",
+                "fxEffectsRemain",
+                "fxClear",
+                "fxRun",
+                "FX_BLEND_CODES",
+                "FX_CONTAINER_PROPS",
+                "FX_PAINT_PROPS"
+            ],
+            "description": "Live effects by native uuid: apply drop shadow / Gaussian blur via applyEffect(LiveEffectXML), remove via the [Default] graphic style with basic-appearance restore and read-back. Effect parameters cannot be read from script."
+        },
+        "swatches": {
+            "file": "swatches.jsx",
+            "version": "1.0.0",
+            "dependencies": [
+                "polyfills",
+                "doc_model"
+            ],
+            "exports": [
+                "swKind",
+                "swEntry",
+                "swGroupOf",
+                "swFindGroup",
+                "swFind",
+                "swAllNames",
+                "swSimilar",
+                "swMakeColor",
+                "swBaseColor",
+                "swColorMatches",
+                "swList",
+                "swGroupNames",
+                "swGet",
+                "swCreate",
+                "swCreateGroup",
+                "swDelete",
+                "swDeleteGroup",
+                "swLibraryRoots",
+                "swWalk",
+                "swLibraryFiles",
+                "swLibraries",
+                "swU16",
+                "swU32",
+                "swF32",
+                "swUtf16",
+                "swAseColor",
+                "swParseAse",
+                "swReadAse",
+                "swReadAiLibrary",
+                "swLibrary",
+                "SW_RESERVED",
+                "SW_LIBRARY_FORMATS",
+                "SW_ASE_KINDS"
+            ],
+            "description": "Document swatches and swatch groups (list, exact get, create process/spot/global, delete with read-back) and swatch libraries (.ai opened with alerts suppressed, .ase parsed)."
         }
     }
 }
