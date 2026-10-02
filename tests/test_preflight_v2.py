@@ -155,6 +155,19 @@ class TestSeededDocument:
         assert info["artboards"][0]["bounds"] == [0, 0, 600, 400]
 
 
+class TestThreadedText:
+    def test_missing_font_in_a_continuation_frame_is_reported_not_unreadable(self):
+        a = {"type": "TextFrame", "uuid": "1", "name": "a", "b": [10, 10, 90, 40], "kind": "TextType.AREATEXT",
+             "visible": 6, "runs": [{"text": "AAAAAA", "font": "Georgia"}, {"text": "BBBB", "font": "ZzqProbeSans-Regular"}]}
+        b = {"type": "TextFrame", "uuid": "2", "name": "b", "b": [10, 60, 90, 90], "kind": "TextType.AREATEXT",
+             "runs": [{"text": ""}]}
+        spec = {"missing_fonts": SEED["missing_fonts"],
+                "layers": [{"name": "L", "items": [a, b]}], "threads": [["1", "2"]]}
+        rep = _pf(spec, scopes=["text"])
+        assert "text.missing_font" in rep["checks_run"] and all(c["check"] != "text.missing_font" for c in rep["checks_skipped"])
+        assert _uuids(rep, "text.missing_font") == ["2"]  # BBBB flowed into the second frame
+
+
 class TestCoverage:
     def test_unrequested_scopes_are_skipped_not_silently_empty(self):
         rep = _pf(scopes=["links"])

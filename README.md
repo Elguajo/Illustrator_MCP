@@ -213,7 +213,7 @@ No additional servers or processes needed.
 
 ## Available Tools
 
-This server pairs a powerful script executor with typed tools. The typed tools (`illustrator_inspect`, `illustrator_artboards`, document `list`/`switch`) return Illustrator's native PageItem `uuid`, and `illustrator_execute_task` accepts those uuids as a `{"type": "uuid"}` target, so an agent can inspect, pick, and act without writing ExtendScript. Raw script stays the fallback for anything not covered.
+This server pairs a powerful script executor with typed tools. The typed tools (`illustrator_inspect`, `illustrator_artboards`, `illustrator_text`, document `list`/`switch`) return Illustrator's native PageItem `uuid`, and `illustrator_execute_task` accepts those uuids as a `{"type": "uuid"}` target, so an agent can inspect, pick, and act without writing ExtendScript. Raw script stays the fallback for anything not covered.
 
 Every tool carries a `CONTRACT:` line in its docstring and machine-checkable annotation hints (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) sourced from a canonical `TOOL_ANNOTATIONS` registry in `base.py`. Hints follow the **worst-case capability rule**: if *any* action of a multi-action tool is destructive, the tool is annotated as destructive.
 
@@ -253,6 +253,12 @@ Every tool carries a `CONTRACT:` line in its docstring and machine-checkable ann
 |---|---|
 | `illustrator_artboards` | `list`, `create`, `update` (rename, resize around an anchor, move, exact bounds), `delete` (keeps artwork; refuses the last artboard), `activate`, `fit` (to the artboard's art, all art, selection, or uuids, with padding), and `presets` (A4, Letter, Instagram Story, HD 1080p, ...). |
 
+### Text (1)
+
+| Tool | Description |
+|---|---|
+| `illustrator_text` | Edit existing text by native `uuid`: `replace` (find/replace that keeps each match's character attributes; matches spanning differently styled characters are skipped and reported), `replace_font` (from a used font, missing ones included, to an installed one; other runs untouched), `style` (font, size, color, tracking over a character range; paragraph space before/after), `outline` (text to glyph paths, returns the new group's uuid and keeps `@mcp:id`). Pass `document` (from `illustrator_inspect`) with `uuids`. Locked or hidden frames are never modified; every write is read back. Text overflow is reported by `illustrator_inspect(view="details")`. |
+
 ### Path Operations (2)
 
 | Tool | Description |
@@ -265,7 +271,7 @@ Every tool carries a `CONTRACT:` line in its docstring and machine-checkable ann
 | Tool | Description |
 |---|---|
 | `illustrator_query_items` | Declarative item query via the Task Protocol (target selectors, stable refs). Defaults to selection info when no targets given. |
-| `illustrator_preflight_check` | Read-only validation: off-artboard items, zero-size items, empty text, locked layers |
+| `illustrator_preflight_check` | Read-only scoped report (`scopes`: document, objects, text, images, links, colors). Findings are grouped by tag (`text.missing_font`, `text.overset`, `images.low_ppi`, `links.missing`, `objects.off_artboard`, `objects.hairline_stroke`, `colors.registration`, `colors.overprint_white`, `colors.rich_black_text`, ...) with exact counts and `affected_objects[{uuid, name, type, layer_path, ...facts}]`. `checks_run` / `checks_skipped` say which checks actually covered the document, so an empty category is only clean when its check ran. |
 
 **Total: 15 tools.** Scripting reference and linked-item refresh are available as MCP resources.
 
@@ -959,6 +965,7 @@ Illustrator_MCP/
 │   │   ├── documents.py          # Document I/O + checkpoint tools
 │   │   ├── context.py            # State inspection tools
 │   │   ├── query.py              # query_items + preflight_check
+│   │   ├── text_tools.py         # illustrator_text (doc_text.jsx)
 │   │   └── import_svg.py         # SVG path import tool (d → drawPathPoints)
 │   ├── overlay.py                # VLM overlay (bounding boxes + ruler + probe markers + coordinate mapping)
 │   └── resources/

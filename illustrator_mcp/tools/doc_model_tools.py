@@ -8,6 +8,7 @@ accepts through the ``{"type": "uuid"}`` target selector.
 """
 
 import json
+from urllib.parse import unquote
 from typing import List, Literal, Optional
 
 from pydantic import Field, model_validator
@@ -26,6 +27,81 @@ _NO_DOC_GUARD = (
 
 _REQUEST_ERROR_KEY = "__dm_request_error"
 
+# WIRE FORMAT. Measured live on Illustrator 30.8.1: the native JSON object has
+# stringify but no parse, and its stringify escapes only '"' and "\n" (tab, "\r",
+# other control characters, U+2028/U+2029 and the backslash itself come out
+# raw, so text such as a\b is silently corrupted). host.jsx's "already an
+# envelope" passthrough needs JSON.parse, so it never fires: every returned
+# string is stringified a second time, and the CEP panel's strict JSON.parse
+# then rejects any result whose text holds a quote, a backslash or a control
+# character (a text frame with two paragraphs, a replacement containing
+# "quotes"). So results leave ExtendScript as "dm1:" + compact JSON built by
+# our own serializer (__dmJson) with every '%', backslash and '"'
+# percent-encoded. That string holds no quote, backslash or control
+# character, so host.jsx's serialization is the identity whether or not it is
+# ever fixed. decode_dm_wire() undoes it.
+_WIRE_PREFIX = "dm1:"
+_WIRE_JS = r"""function __dmQuote(s) {
+  return '"' + s.replace(/[\\"\x00-\x1f\x7f-\uffff]/g, function (c) {
+    if (c === '"') { return '\\"'; }
+    if (c === "\\") { return "\\\\"; }
+    var h = c.charCodeAt(0).toString(16);
+    return "\\u" + "0000".substring(h.length) + h;
+  }) + '"';
+}
+function __dmJson(v) {
+  var t = typeof v, i, parts, k, e;
+  if (v === null || v === undefined) { return "null"; }
+  if (t === "string") { return __dmQuote(v); }
+  if (t === "number") { return isFinite(v) ? String(v) : "null"; }
+  if (t === "boolean") { return v ? "true" : "false"; }
+  parts = [];
+  if (v instanceof Array) {
+    for (i = 0; i < v.length; i++) { parts.push(__dmJson(v[i])); }
+    return "[" + parts.join(",") + "]";
+  }
+  for (k in v) {
+    if (!v.hasOwnProperty(k)) { continue; }
+    e = v[k];
+    if (e === undefined || typeof e === "function") { continue; }
+    parts.push(__dmQuote(String(k)) + ":" + __dmJson(e));
+  }
+  return "{" + parts.join(",") + "}";
+}
+function __dmWire(v) {
+  return "dm1:" + __dmJson(v).replace(/[%\\"]/g, function (c) {
+    var h = c.charCodeAt(0).toString(16).toUpperCase();
+    return "%" + (h.length < 2 ? "0" : "") + h;
+  });
+}"""
+
+
+def decode_dm_wire(value):
+    """Decode a ``dm1:`` wire string to its JSON value; anything else passes through."""
+    if isinstance(value, str) and value.startswith(_WIRE_PREFIX):
+        return json.loads(unquote(value[len(_WIRE_PREFIX):]))
+    return value
+
+
+def unwrap_dm_response(response):
+    """Decode the wire payload out of a raw execute_script_with_context response.
+
+    Returns the decoded value, or None when the response holds no wire string
+    (callers then fall back to their generic unwrapping).
+    """
+    inner = response.get("result", response) if isinstance(response, dict) else response
+    for _ in range(3):
+        if isinstance(inner, dict) and "data" in inner and inner.get("ok") is not False:
+            inner = inner["data"]
+        else:
+            break
+    if isinstance(inner, str) and inner.startswith(_WIRE_PREFIX):
+        try:
+            return decode_dm_wire(inner)
+        except ValueError:
+            return None
+    return None
+
 
 def dm_script(call: str, payload: dict, *, needs_doc: bool = True) -> str:
     """Build the IIFE that runs one doc_model call.
@@ -36,17 +112,19 @@ def dm_script(call: str, payload: dict, *, needs_doc: bool = True) -> str:
 
     Request errors raised with dmFail() come back as a marked result so
     run_dm can report them as V011; anything else is rethrown untouched.
+    The result leaves ExtendScript in the wire format described above
+    (decode_dm_wire).
     """
     literal = json.dumps(payload, ensure_ascii=True)
-    lines = ["(function () {", f"var P = {literal};"]
+    lines = ["(function () {", _WIRE_JS, f"var P = {literal};"]
     if needs_doc:
         lines.append(_NO_DOC_GUARD)
         lines.append("var doc = app.activeDocument;")
     lines.append("try {")
-    lines.append(f"return JSON.stringify({call});")
+    lines.append(f"return __dmWire({call});")
     lines.append("} catch (e) {")
     lines.append(
-        f"if (e && e.dmUserError) {{ return JSON.stringify({{ {_REQUEST_ERROR_KEY}: String(e.message) }}); }}"
+        f"if (e && e.dmUserError) {{ return __dmWire({{ {_REQUEST_ERROR_KEY}: String(e.message) }}); }}"
     )
     lines.append("throw e;")
     lines.append("}")
@@ -82,6 +160,12 @@ async def run_dm(
     except (TypeError, ValueError):
         return raw
     result = env.get("result") if isinstance(env, dict) else None
+    if isinstance(result, str) and result.startswith(_WIRE_PREFIX):
+        try:
+            result = env["result"] = decode_dm_wire(result)
+        except ValueError:
+            return raw
+        raw = json.dumps(env)
     if env.get("ok") and isinstance(result, dict) and _REQUEST_ERROR_KEY in result:
         return make_envelope(
             ok=False,

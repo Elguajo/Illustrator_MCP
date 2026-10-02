@@ -36,6 +36,72 @@ History before 3.1.0 was not tracked here; see `git log` for it.
     fit) return `V011` with their own message instead of `E999` "review script
     syntax".
 
+- **`illustrator_text`: edit existing text by native uuid** (second step of the
+  hybrid toolset). Actions:
+  - `replace` — find/replace that keeps each match's character attributes
+    (font, size, tracking, color, ...). Matching is per story, so a match that
+    crosses threaded frames is found. A match spanning differently styled
+    characters is skipped and listed in `skipped_occurrences` with its index.
+  - `replace_font` — from a font in use (a missing font included, by the
+    PostScript name `illustrator_inspect` reports) to an installed one; only
+    runs in the source font change.
+  - `style` — font, size, fill color, tracking over a 0-based character range,
+    plus paragraph `space_before` / `space_after` for every paragraph the range
+    touches. Colors are checked by read-back; in a CMYK document an RGB color
+    is converted by Illustrator and reported as `color_converted`.
+  - `outline` — text to glyph paths; returns the group's uuid and child uuids,
+    and moves the frame's name and note (`@mcp:id`) onto the group.
+  Every result follows the batch contract (`success_count`, `fail_count`,
+  `failed_objects[{uuid, reason}]`, `skipped_objects`) and names its
+  `document`. Locked or hidden frames (also through their layer or group) are
+  never modified; they are listed in `skipped_objects`. Every write is read
+  back and a value that did not stick is `verify_failed`, not success.
+  `uuids` require `document` (uuids are per document).
+- **Text overflow detection** in `illustrator_inspect(view="details")` and in
+  preflight: area and path text report `overflow: {overset, overset_chars,
+  overset_preview}`; a frame that threads on reports `continues_in`; point text
+  has no overflow. Measured from composed lines against the story text, and
+  checked live on area text, threaded area text and path text (a trailing
+  paragraph return is not overset).
+- **Preflight v2** (`illustrator_preflight_check`). Scopes `document`,
+  `objects`, `text`, `images`, `links`, `colors`; 21 checks identified as
+  `<scope>.<name>`. Findings are aggregated by tag with exact `count`,
+  `severity` (error / warning / info) and `affected_objects[{uuid, name, type,
+  layer_path, mcp_id?, ...raw facts}]` capped by `max_affected`. New checks:
+  missing fonts (with `fonts_used`), overset text, low effective PPI (with
+  pixel size, placed size and file), missing and modified links, hairline
+  strokes, stray points, partially off-artboard objects, empty artboards,
+  raster-effects resolution, Registration color, white overprint, rich black in
+  small text, total ink, RGB/CMYK image mismatch, spot-color summary.
+  `checks_run` / `checks_skipped` (reason `scope_not_requested`,
+  `disabled_by_parameter`, `partial`, ...) say which checks covered every
+  object, so an empty category is only trusted when its check ran; known blind
+  spots are written to `check_notes`. Hidden objects are not checked (they are
+  reported under `objects.hidden`).
+
+  **Compatibility.** Every v1 parameter is still accepted and `ok` /
+  `warnings` keep their meaning (`ok` = the check ran; one warning per
+  non-info finding). `result.issues` is still returned, derived from the
+  findings (`type`, `tag`, `count`, `message`, `samples`; `severity: "info"`
+  unchanged), and v1 types that existed (`off_artboard`, `zero_size`,
+  `empty_text`, `locked`) keep their names. Behavior differences, documented
+  as the break:
+  - `result.checks` (the raw v1 sub-reports, e.g. `checks.bounds`) is gone;
+    use `findings`, `checks_run`, `checks_skipped`.
+  - Without `artboard_index`, v1 judged items against the *active* artboard;
+    v2 treats every artboard as valid, so an item sitting on another artboard
+    is no longer reported. Pass `artboard_index` for the v1 reference.
+  - `off_artboard` now means entirely outside the reference artboard(s). Under
+    the default `policy="fully-contained"`, v1 counted partially off items as
+    `off_artboard` warnings; v2 reports them as `objects.partially_off_artboard`
+    (info, no warning), since bleed and decorative overhang are normal.
+    `policy="intersects"` hides them altogether.
+  - `scope` ("document" / "artboard") still filters items, now documented as
+    an item filter distinct from the new `scopes` categories.
+  - An out-of-range `artboard_index` is `V011` with a clear message (was `E999`).
+  - Hidden objects (and everything in a hidden layer or group) are not checked;
+    they appear under `objects.hidden`.
+
 ### Fixed
 
 - **Fill and stroke edits on compound paths were silent no-ops.**
@@ -47,6 +113,33 @@ History before 3.1.0 was not tracked here; see `git log` for it.
   reading the fill back). Paint now goes to every child path through
   `paintTargetsOf`; `style_snapshot` and `style_clone` read it from the first
   child. Same defect class as the earlier `path_boolean` fill loss.
+
+- **Typed-tool results broke the CEP panel whenever the text held a quote, a
+  backslash or a paragraph break.** Measured live on Illustrator 30.8.1: the
+  native `JSON` has `stringify` but no `parse`, and its `stringify` escapes only
+  `"` and `\n` (tab, `\r` — Illustrator's paragraph separator — other control
+  characters, U+2028/U+2029 and the backslash itself come out raw, so `a\b` was
+  silently corrupted). host.jsx's "already an envelope" passthrough needs
+  `JSON.parse`, so it never fires: every returned string is stringified a
+  second time, and the panel's strict `JSON.parse` rejected the result.
+  `illustrator_inspect` on a two-paragraph text frame failed this way (confirmed
+  live). Results of `dm_script` tools now leave ExtendScript as `dm1:` + JSON
+  built by our own serializer with `%`, `\` and `"` percent-encoded, which is
+  immune to how host.jsx serializes strings; Python decodes it (`run_dm`,
+  `unwrap_dm_response`). Pinned by `tests/test_dm_json_escaping.py`, which runs
+  the real host.jsx under an Illustrator-like `JSON`. The rest of the tools
+  still go through host.jsx's serialization and have the same exposure for
+  results containing quotes or backslashes (see Known issues in the study).
+- **Missing fonts were never reported for most text.** `app.textFonts
+  .getByName()` succeeds for a missing font because Illustrator registers a
+  placeholder; the run's font then carries an embedded-subset family
+  (`XPUYQY+Name`) that differs from the installed record. `dmFontStatus` uses
+  that signal. `TextFrame.textRanges` is also per *character*, not per run, so
+  phase 1's `font_runs` looked at the first 200 characters only; runs are now
+  rebuilt over the whole frame.
+- **Font runs of the second frame of a threaded story failed** with "The
+  specified text range is invalid": in a continuation frame `textRanges` is
+  indexed by story position. Frames are now read through their story.
 
 - Worked around an Illustrator quirk: `getPageItemFromUuid()` returns a
   *different* object typed `GroupItem` for a `CompoundPathItem`, and throws on

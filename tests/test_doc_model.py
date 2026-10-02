@@ -60,8 +60,12 @@ function makeItem(spec, parent, layer) {
       it.textRanges.push({ characterAttributes: { size: runs[r].size,
         textFont: { name: runs[r].font, family: runs[r].family || runs[r].font, style: "Regular" } } });
     }
-    it.textRange = { characterAttributes: { fillColor: { typename: "GrayColor", gray: 100 },
+    it.textRange = { start: 0, characterAttributes: { fillColor: { typename: "GrayColor", gray: 100 },
       strokeColor: { typename: "NoColor" } } };
+    // Frames are read through their story (see dmFontRuns); a first frame's
+    // story ranges are its own ranges.
+    it.story = { textRanges: it.textRanges };
+    it.characters = { length: it.textRanges.length };
   }
   var kids = spec.children || [];
   for (var k = 0; k < kids.length; k++) {
@@ -658,11 +662,22 @@ catch (e) {{ console.log(JSON.stringify({{ threw: String(e.message) }})); }}
 
     def test_request_error_is_returned_as_a_marked_result(self):
         res = self._exec('dmFail("No artboard named \'x\'");')
-        assert json.loads(res["returned"]) == {"__dm_request_error": "No artboard named 'x'"}
+        from illustrator_mcp.tools.doc_model_tools import decode_dm_wire
+        assert decode_dm_wire(res["returned"]) == {"__dm_request_error": "No artboard named 'x'"}
 
     def test_script_failure_still_throws(self):
         res = self._exec("undefinedThing.call();")
         assert "threw" in res
+
+    @pytest.mark.asyncio
+    async def test_wire_result_is_decoded_before_it_reaches_the_caller(self):
+        from illustrator_mcp.tools.doc_model_tools import _WIRE_PREFIX
+        wire = _WIRE_PREFIX + "%7B%22artboards%22:[%7B%22name%22:%22a%5Cu000db%22%7D]%7D"
+        inner = json.dumps({"ok": True, "result": wire})
+        with patch("illustrator_mcp.tools.doc_model_tools.execute_jsx_tool",
+                   AsyncMock(return_value=inner)):
+            env = json.loads(await illustrator_artboards(ArtboardsInput(action="list")))
+        assert env["result"] == {"artboards": [{"name": "a\rb"}]}
 
     @pytest.mark.asyncio
     async def test_marked_result_maps_to_v011(self):

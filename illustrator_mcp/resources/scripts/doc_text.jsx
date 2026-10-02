@@ -25,6 +25,30 @@
 
 // ==================== Targets ====================
 
+/**
+ * uuids are numbered per document and collide across open documents, so a
+ * request that names uuids must also name the document they came from
+ * (result.document.name of illustrator_inspect). Checked before any lookup.
+ */
+function dtCheckDocument(doc, P) {
+    var name = String(doc.name);
+    if (P.uuids && P.uuids.length && !P.document) {
+        dmFail("uuids require document: pass result.document.name from the illustrator_inspect call " +
+            "that returned them (uuids are numbered per document)");
+    }
+    if (P.document && P.document !== name) {
+        dmFail("Request names document '" + P.document + "' but the active document is '" + name +
+            "'. uuids are numbered per document, so nothing was changed. Switch with " +
+            "illustrator_document(action='switch', name='" + P.document + "') or inspect this document again.");
+    }
+}
+
+/** Every text result names its document. */
+function dtResult(doc, result) {
+    result.document = dmDocumentRef(doc);
+    return result;
+}
+
 /** Text frames for a request: P.uuids, or every text frame in the document. */
 function dtCollectFrames(doc, P) {
     var frames = [];
@@ -76,7 +100,7 @@ function dtStoryFrames(tf) {
     return out;
 }
 
-/** n-character TextRange starting at index `start` of a frame or story. */
+/** n-character TextRange starting at index start of a frame or story. */
 function dtRange(textObj, start, n) {
     var r = textObj.characters[start];
     r.length = n;
@@ -149,6 +173,7 @@ function dtNormalizeBreaks(s) {
  * reported: the replacement could not keep "the" original style.
  */
 function dtReplaceText(doc, P) {
+    dtCheckDocument(doc, P);
     var find = dtNormalizeBreaks(P.find || "");
     if (!find.length) dmFail("find must not be empty");
     var repl = dtNormalizeBreaks(P.replace === undefined || P.replace === null ? "" : P.replace);
@@ -246,7 +271,7 @@ function dtReplaceText(doc, P) {
             failed.push({ uuid: key, reason: "error", detail: String(e.message || e) });
         }
     }
-    return {
+    return dtResult(doc, {
         replaced_count: replacedTotal,
         changed: changed,
         skipped_occurrences: skippedOcc,
@@ -254,7 +279,7 @@ function dtReplaceText(doc, P) {
         fail_count: failed.length,
         failed_objects: failed,
         skipped_objects: skipped
-    };
+    });
 }
 
 // ==================== Font replacement ====================
@@ -267,6 +292,7 @@ function dtReplaceText(doc, P) {
  * Only runs in from_font change; every other run is left as it was.
  */
 function dtReplaceFont(doc, P) {
+    dtCheckDocument(doc, P);
     var from = String(P.from_font || "");
     if (!from) dmFail("from_font is required");
     var toFont;
@@ -341,7 +367,7 @@ function dtReplaceFont(doc, P) {
             failed.push({ uuid: key, reason: "error", detail: String(e.message || e) });
         }
     }
-    return {
+    return dtResult(doc, {
         from_font: from,
         to_font: toName,
         runs_replaced: runsTotal,
@@ -351,7 +377,7 @@ function dtReplaceFont(doc, P) {
         fail_count: failed.length,
         failed_objects: failed,
         skipped_objects: skipped
-    };
+    });
 }
 
 // ==================== Character / paragraph styling ====================
@@ -422,6 +448,7 @@ function dtColorConverts(doc, spec) {
  * P.space_before, P.space_after.
  */
 function dtStyleRange(doc, P) {
+    dtCheckDocument(doc, P);
     var wantChar = P.font !== undefined || P.size !== undefined || P.color !== undefined || P.tracking !== undefined;
     var wantPara = P.space_before !== undefined || P.space_after !== undefined;
     if (!wantChar && !wantPara) dmFail("Nothing to style: pass font, size, color, tracking, space_before or space_after");
@@ -514,13 +541,13 @@ function dtStyleRange(doc, P) {
             failed.push({ uuid: uuid, reason: "error", detail: String(e2.message || e2) });
         }
     }
-    return {
+    return dtResult(doc, {
         objects: objects,
         success_count: objects.length,
         fail_count: failed.length,
         failed_objects: failed,
         skipped_objects: skipped
-    };
+    });
 }
 
 // ==================== Outlines ====================
@@ -530,6 +557,7 @@ function dtStyleRange(doc, P) {
  * glyph paths; its name and note (including @mcp:id) move to the group.
  */
 function dtOutline(doc, P) {
+    dtCheckDocument(doc, P);
     var res = dmResolveUuids(doc, P.uuids || []);
     var failed = res.missing;
     var skipped = [];
@@ -568,11 +596,11 @@ function dtOutline(doc, P) {
             failed.push({ uuid: uuid, reason: "error", detail: String(e.message || e) });
         }
     }
-    return {
+    return dtResult(doc, {
         objects: objects,
         success_count: objects.length,
         fail_count: failed.length,
         failed_objects: failed,
         skipped_objects: skipped
-    };
+    });
 }

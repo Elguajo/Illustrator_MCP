@@ -583,19 +583,30 @@ function dmColorKey(c) {
  * (observed on AI 30.8.1), so runs are rebuilt by comparing neighbours.
  * Indexing the cached collection is cheap (~40us per character); going
  * through characters[i] is ~15x slower.
+ * In the continuation frame of a threaded story, tf.textRanges is indexed by
+ * position in the *story* (valid indices start at textRange.start although
+ * length is the frame's), so a frame is always read through its story over
+ * the frame's own window. Run starts are relative to the frame (or story).
  * opts.max_chars: scan budget (default 100000); opts.fill: split runs on
  * fill color too and report it.
  */
 function dmFontRuns(textObj, opts) {
     opts = opts || {};
     var maxChars = opts.max_chars || 100000;
-    var ranges = textObj.textRanges;
-    var n = ranges.length;
+    var ranges, offset = 0, n;
+    if (textObj.typename === "TextFrame") {
+        ranges = textObj.story.textRanges;
+        offset = textObj.textRange.start;
+        n = textObj.characters.length;
+    } else {
+        ranges = textObj.textRanges;
+        n = ranges.length;
+    }
     var limit = Math.min(n, maxChars);
     var runs = [];
     var cur = null;
     for (var i = 0; i < limit; i++) {
-        var ca = ranges[i].characterAttributes;
+        var ca = ranges[offset + i].characterAttributes;
         var font = ca.textFont;
         var fname = String(font.name);
         var size = ca.size;

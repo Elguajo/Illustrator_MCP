@@ -138,6 +138,20 @@ Object.defineProperty(Range.prototype, "paragraphs", {
 });
 Range.prototype.remove = function () { this._s.chars.splice(this._start, this._len); this._len = 0; this._s.syncParas(); };
 
+// TextFrame.textRanges as Illustrator exposes it: indexed by position in the
+// story (valid indices start at the frame's offset), length = frame length.
+// Other indices throw, as in AI 30.8.1 ("The specified text range is invalid").
+function storyIndexedColl(story, base, count) {
+  var c = {}, b = base(), n = count();
+  for (var i = b; i < b + n; i++) (function (i) {
+    Object.defineProperty(c, i, { get: function () { return new Range(story, i, 1); } });
+  })(i);
+  for (var j = 0; j < b && j < 1000; j++) (function (j) {
+    if (j < b) Object.defineProperty(c, j, { get: function () { throw new Error("The specified text range is invalid"); } });
+  })(j);
+  c.length = n;
+  return c;
+}
 function charColl(story, base, count) {
   var c = { };
   var n = count();
@@ -172,7 +186,7 @@ function makeTextFrame(spec, it) {
   defp(it, "contents", { get: function () { return story.text().substr(it.frameStart(), it.frameLen()); },
     set: function (v) { new Range(story, 0, story.chars.length).contents = v; } });
   defp(it, "characters", { get: function () { return charColl(story, it.frameStart, it.frameLen); } });
-  defp(it, "textRanges", { get: function () { return charColl(story, it.frameStart, it.frameLen); } });
+  defp(it, "textRanges", { get: function () { return storyIndexedColl(story, it.frameStart, it.frameLen); } });
   defp(it, "textRange", { get: function () { return new Range(story, it.frameStart(), it.frameLen()); } });
   defp(it, "paragraphs", { get: function () { return new Range(story, it.frameStart(), it.frameLen()).paragraphs; } });
   defp(it, "lines", { get: function () {

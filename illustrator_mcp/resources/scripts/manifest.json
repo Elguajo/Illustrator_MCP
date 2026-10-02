@@ -760,6 +760,8 @@
                 "doc_model"
             ],
             "exports": [
+                "dtCheckDocument",
+                "dtResult",
                 "dtCollectFrames",
                 "dtBlockReason",
                 "dtSkip",

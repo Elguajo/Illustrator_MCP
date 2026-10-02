@@ -62,6 +62,14 @@ class TextInput(ToolInputBase):
             "replace/replace_font default to every text frame in the document."
         ),
     )
+    document: Optional[str] = Field(
+        None,
+        description=(
+            "result.document.name from the illustrator_inspect call that returned the uuids. "
+            "Required with uuids: uuids are numbered per document, so the call is refused "
+            "when another document is active."
+        ),
+    )
     find: Optional[str] = Field(None, min_length=1, description="replace: literal text to find")
     replace: Optional[str] = Field(None, description="replace: replacement text ('' deletes the match)")
     case_sensitive: bool = Field(True, description="replace: match case")
@@ -81,6 +89,8 @@ class TextInput(ToolInputBase):
 
     @model_validator(mode="after")
     def _check_action_fields(self):
+        if self.uuids and not self.document:
+            raise ValueError("uuids require document (result.document.name from illustrator_inspect)")
         if self.action == "replace":
             if self.find is None or self.replace is None:
                 raise ValueError("replace requires find and replace")
@@ -136,6 +146,9 @@ async def illustrator_text(params: TextInput) -> str:
       the group's uuid; the frame's name and note (@mcp:id) move to the group.
 
     MUTATION SAFETY:
+      - uuids are numbered per document: pass document=result.document.name from
+        the illustrator_inspect call; the call changes nothing if another document
+        is active. Every result names its document.
       - Locked or hidden frames (also via their layer or group) are never
         modified; they are listed in skipped_objects. Unlock them first.
       - Every write is read back; a value that did not stick is reported in
@@ -144,12 +157,12 @@ async def illustrator_text(params: TextInput) -> str:
         skipped_objects. Undo with illustrator_history.
 
     EXAMPLES:
-      illustrator_text(action="replace", uuids=["473"], find="2025", replace="2026")
+      illustrator_text(action="replace", uuids=["473"], document="poster.ai", find="2025", replace="2026")
       illustrator_text(action="replace_font", from_font="Helvetica", to_font="ArialMT")
-      illustrator_text(action="style", uuids=["473"], start=6, length=3, size=20,
-                       color={"hex": "#C80000"}, tracking=50)
-      illustrator_text(action="style", uuids=["473"], space_after=12)
-      illustrator_text(action="outline", uuids=["473", "481"])
+      illustrator_text(action="style", uuids=["473"], document="poster.ai", start=6, length=3,
+                       size=20, color={"hex": "#C80000"}, tracking=50)
+      illustrator_text(action="style", uuids=["473"], document="poster.ai", space_after=12)
+      illustrator_text(action="outline", uuids=["473", "481"], document="poster.ai")
 
     NOTES:
       - Font names are PostScript names (illustrator_inspect lists them per run)

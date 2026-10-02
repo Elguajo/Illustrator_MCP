@@ -130,14 +130,14 @@ class TestReplace:
         b = _frame("2", [{"text": ""}], kind="TextType.AREATEXT")
         spec = _doc(a, b, threads=[["1", "2"]])
         # "across" starts in frame 1 (chars 0-7 visible) and ends in frame 2
-        v = jsx_value(LIBS, spec, _after('dtReplaceText(doc, {uuids: ["1", "2"], find: "across", replace: "over"})'))
+        v = jsx_value(LIBS, spec, _after('dtReplaceText(doc, {document: doc.name, uuids: ["1", "2"], find: "across", replace: "over"})'))
         assert v["text"] == "split over frames"
         assert v["res"]["replaced_count"] == 1
         assert v["res"]["changed"] == [{"uuid": "1", "replaced": 1, "frames": 2}]
 
     def test_unknown_and_non_text_uuids_fail_individually(self):
         spec = _doc(_frame("1", [{"text": "old"}]), {"uuid": "5", "name": "box"})
-        res = jsx_value(LIBS, spec, 'dtReplaceText(doc, {uuids: ["1", "404", "5"], find: "old", replace: "new"})')
+        res = jsx_value(LIBS, spec, 'dtReplaceText(doc, {document: doc.name, uuids: ["1", "404", "5"], find: "old", replace: "new"})')
         assert res["replaced_count"] == 1
         assert {f["uuid"]: f["reason"] for f in res["failed_objects"]} == {
             "404": "not_found", "5": "not_a_text_frame"}
@@ -165,6 +165,20 @@ class TestReplace:
         res = jsx_value(LIBS, spec, expr)
         assert res["failed_objects"][0]["reason"] == "style_not_preserved"
         assert res["success_count"] == 0
+
+    def test_uuids_without_document_are_refused(self):
+        res = run_jsx(LIBS, HELLO, 'dtReplaceText(doc, {uuids: ["1"], find: "big", replace: "x"})')
+        assert res["ok"] is False and res["user_error"] is True and "require document" in res["message"]
+
+    def test_other_document_is_refused_before_any_change(self):
+        res = run_jsx(LIBS, HELLO, _after('dtReplaceText(doc, {document: "other.ai", uuids: ["1"], find: "big", replace: "x"})'))
+        assert res["ok"] is False and res["user_error"] is True and "active document is 'test.ai'" in res["message"]
+        text = jsx_value(LIBS, HELLO, 'doc.getPageItemFromUuid("1").contents')
+        assert text == "Hello big world, hello"
+
+    def test_results_name_the_document(self):
+        res = jsx_value(LIBS, HELLO, 'dtReplaceText(doc, {find: "big", replace: "x"})')
+        assert res["document"] == {"name": "test.ai", "path": None}
 
     def test_empty_find_is_a_request_error(self):
         res = run_jsx(LIBS, HELLO, 'dtReplaceText(doc, {find: "", replace: "x"})')
@@ -224,7 +238,7 @@ class TestReplaceFont:
 class TestStyle:
     def test_character_range_styling_reads_back(self):
         spec = _doc(_frame("1", [{"text": "Hello big world"}]))
-        call = ('dtStyleRange(doc, {uuids: ["1"], start: 6, length: 3, font: "Georgia", size: 20,'
+        call = ('dtStyleRange(doc, {document: doc.name, uuids: ["1"], start: 6, length: 3, font: "Georgia", size: 20,'
                 ' tracking: 50, color: {hex: "#C80000"}})')
         v = jsx_value(LIBS, spec, _after(call))
         rb = v["res"]["objects"][0]["read_back"]
@@ -235,7 +249,7 @@ class TestStyle:
 
     def test_paragraph_spacing_applies_to_touched_paragraphs_only(self):
         spec = _doc(_frame("1", [{"text": "one\rtwo\rthree"}]))
-        expr = ("(function(){ var r = dtStyleRange(doc, {uuids: ['1'], start: 5, length: 1, space_before: 6, space_after: 12});"
+        expr = ("(function(){ var r = dtStyleRange(doc, {document: doc.name, uuids: ['1'], start: 5, length: 1, space_before: 6, space_after: 12});"
                 " return { res: r, paras: doc.getPageItemFromUuid('1').story_.paraAttrs }; })()")
         v = jsx_value(LIBS, spec, expr)
         assert v["paras"] == [{"spaceBefore": 0, "spaceAfter": 0},
@@ -245,7 +259,7 @@ class TestStyle:
 
     def test_range_out_of_bounds_fails_that_frame(self):
         spec = _doc(_frame("1", [{"text": "short"}]))
-        res = jsx_value(LIBS, spec, 'dtStyleRange(doc, {uuids: ["1"], start: 3, length: 10, size: 9})')
+        res = jsx_value(LIBS, spec, 'dtStyleRange(doc, {document: doc.name, uuids: ["1"], start: 3, length: 10, size: 9})')
         assert res["failed_objects"][0]["reason"] == "range_out_of_bounds"
 
     def test_rgb_in_cmyk_document_is_converted_not_failed(self):
@@ -255,7 +269,7 @@ class TestStyle:
                 "  set: function(v){ var c = new CMYKColor(); c.magenta = 100; c.yellow = 100;"
                 "   for (var i = st; i < st + len; i++) s.chars[i].a.fillColor = c; } });"
                 " return o; };"
-                " return dtStyleRange(doc, {uuids: ['1'], color: {hex: '#ff0000'}}); })()")
+                " return dtStyleRange(doc, {document: doc.name, uuids: ['1'], color: {hex: '#ff0000'}}); })()")
         res = jsx_value(LIBS, spec, expr)
         assert res["success_count"] == 1
         rb = res["objects"][0]["read_back"]
@@ -266,20 +280,20 @@ class TestStyle:
         expr = ("(function(){ var orig = charAttrs; charAttrs = function(s, st, len){ var o = orig(s, st, len);"
                 " Object.defineProperty(o, 'size', { get: function(){ return s.chars[st].a.size; }, set: function(){} });"
                 " return o; };"
-                " return dtStyleRange(doc, {uuids: ['1'], size: 30}); })()")
+                " return dtStyleRange(doc, {document: doc.name, uuids: ['1'], size: 30}); })()")
         res = jsx_value(LIBS, spec, expr)
         assert res["success_count"] == 0
         assert res["failed_objects"][0]["attributes"] == ["size", "size"]
 
     def test_locked_frame_is_skipped(self):
         spec = _doc(_frame("1", [{"text": "abc"}], locked=True))
-        res = jsx_value(LIBS, spec, 'dtStyleRange(doc, {uuids: ["1"], size: 30})')
+        res = jsx_value(LIBS, spec, 'dtStyleRange(doc, {document: doc.name, uuids: ["1"], size: 30})')
         assert res["skipped_objects"][0]["reason"] == "locked"
         assert res["success_count"] == 0
 
     def test_font_must_be_installed(self):
         spec = _doc(_frame("1", [{"text": "abc"}]))
-        res = run_jsx(LIBS, spec, 'dtStyleRange(doc, {uuids: ["1"], font: "Gone-Bold"})')
+        res = run_jsx(LIBS, spec, 'dtStyleRange(doc, {document: doc.name, uuids: ["1"], font: "Gone-Bold"})')
         assert res["ok"] is False and res["user_error"] is True
         assert "is not an installed font" in res["message"]
 
@@ -289,7 +303,7 @@ class TestStyle:
 class TestOutline:
     def test_outline_returns_the_group_and_carries_identity(self):
         spec = _doc(_frame("1", [{"text": "Out"}], name="logo", note="@mcp:id=logo_1", b=[10, 10, 60, 30]))
-        expr = ("(function(){ var r = dtOutline(doc, {uuids: ['1']});"
+        expr = ("(function(){ var r = dtOutline(doc, {document: doc.name, uuids: ['1']});"
                 " return { res: r, gone: resolvePageItemByUuid(doc, '1') === null,"
                 " group: dmNode(doc.getPageItemFromUuid(r.objects[0].uuid)) }; })()")
         v = jsx_value(LIBS, spec, expr)
@@ -302,7 +316,7 @@ class TestOutline:
 
     def test_locked_and_hidden_frames_are_skipped(self):
         spec = _doc(_frame("1", [{"text": "a"}], locked=True), _frame("2", [{"text": "b"}], hidden=True))
-        res = jsx_value(LIBS, spec, 'dtOutline(doc, {uuids: ["1", "2"]})')
+        res = jsx_value(LIBS, spec, 'dtOutline(doc, {document: doc.name, uuids: ["1", "2"]})')
         assert {s["uuid"]: s["reason"] for s in res["skipped_objects"]} == {"1": "locked", "2": "hidden"}
         assert res["success_count"] == 0
 
@@ -344,6 +358,20 @@ class TestFontRuns:
         assert fonts["Zz-Bold"]["available"] is False
         assert fonts["Zz-Bold"]["first_char"] == 250
         assert "font_runs_truncated" not in t
+
+    def test_continuation_frame_of_a_thread_is_read_through_its_story(self):
+        # Live on AI 30.8.1: in the second frame of a thread, tf.textRanges is
+        # indexed by story position, so textRanges[0] throws "The specified
+        # text range is invalid" and a missing font there went unreported.
+        a = _frame("1", [{"text": "AAAAAA", "font": "Georgia"}, {"text": "BBBB", "font": "Zz-Bold"}],
+                   kind="TextType.AREATEXT", visible=6)
+        b = _frame("2", [{"text": ""}], kind="TextType.AREATEXT")
+        spec = _doc(a, b, threads=[["1", "2"]], missing_fonts=[{"name": "Zz-Bold", "family": "Zz"}])
+        fr = jsx_value(LIBS, spec, 'dmFontRuns(doc.getPageItemFromUuid("2"))')
+        assert [(r["start"], r["length"], r["font"], r["available"]) for r in fr["runs"]] == [
+            (0, 4, "Zz-Bold", False)]
+        t = jsx_value(LIBS, spec, 'dmTextDetails(doc.getPageItemFromUuid("2"))')
+        assert "font_runs_error" not in t and t["font_runs"][0]["available"] is False
 
     def test_scan_budget_reports_truncation(self):
         spec = _doc(_frame("1", [{"text": "abcdef"}]))
@@ -403,20 +431,22 @@ class TestTextInput:
         with pytest.raises(ValidationError):
             TextInput(action="replace_font", from_font="A")
         with pytest.raises(ValidationError):
-            TextInput(action="style", uuids=["1"])
+            TextInput(action="style", document="d.ai", uuids=["1"])
         with pytest.raises(ValidationError):
             TextInput(action="outline")
+        with pytest.raises(ValidationError):
+            TextInput(action="outline", uuids=["1"])  # uuids without document
         TextInput(action="replace", find="a", replace="")
-        TextInput(action="style", uuids=["1"], space_after=4)
+        TextInput(action="style", document="d.ai", uuids=["1"], space_after=4)
 
     def test_color_needs_exactly_one_complete_model(self):
         with pytest.raises(ValidationError):
-            TextInput(action="style", uuids=["1"], color={"hex": "#ff0000", "gray": 10})
+            TextInput(action="style", document="d.ai", uuids=["1"], color={"hex": "#ff0000", "gray": 10})
         with pytest.raises(ValidationError):
-            TextInput(action="style", uuids=["1"], color={"c": 10, "m": 0})
+            TextInput(action="style", document="d.ai", uuids=["1"], color={"c": 10, "m": 0})
         with pytest.raises(ValidationError):
-            TextInput(action="style", uuids=["1"], color={"hex": "red"})
-        TextInput(action="style", uuids=["1"], color={"c": 0, "m": 100, "y": 100, "k": 0})
+            TextInput(action="style", document="d.ai", uuids=["1"], color={"hex": "red"})
+        TextInput(action="style", document="d.ai", uuids=["1"], color={"c": 0, "m": 100, "y": 100, "k": 0})
 
 
 class TestTextDispatch:
@@ -424,8 +454,8 @@ class TestTextDispatch:
     @pytest.mark.parametrize("params,call", [
         ({"action": "replace", "find": "a", "replace": "b"}, "dtReplaceText(doc, P)"),
         ({"action": "replace_font", "from_font": "A", "to_font": "B"}, "dtReplaceFont(doc, P)"),
-        ({"action": "style", "uuids": ["1"], "size": 9}, "dtStyleRange(doc, P)"),
-        ({"action": "outline", "uuids": ["1"]}, "dtOutline(doc, P)"),
+        ({"action": "style", "uuids": ["1"], "document": "d.ai", "size": 9}, "dtStyleRange(doc, P)"),
+        ({"action": "outline", "uuids": ["1"], "document": "d.ai"}, "dtOutline(doc, P)"),
     ])
     async def test_each_action_calls_its_function_with_doc_text(self, params, call):
         with patch("illustrator_mcp.tools.doc_model_tools.execute_jsx_tool",

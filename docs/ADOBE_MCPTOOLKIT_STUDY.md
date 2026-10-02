@@ -2,7 +2,9 @@
 
 Status: research note, 2026-10-02. Phase 1 implemented the same day: native uuid
 identity, `illustrator_inspect`, `illustrator_artboards`, document `list`/`switch`, and the
-`{"type": "uuid"}` task target (see CHANGELOG). The remaining gap rows below are open.
+`{"type": "uuid"}` task target. Phase 2 implemented: `illustrator_text` (style-preserving replace,
+font replace, range and paragraph styling, outlines), text overflow detection, and preflight v2
+(patterns 3, 4, 5, 7). See CHANGELOG. The remaining gap rows below are open.
 
 ## Source and boundary
 
@@ -68,13 +70,13 @@ Missing on our side, in priority order:
 |------|--------------------|
 | Artboards | duplicate; artboard background color (list/create/resize/preset/fit/move/delete/activate done) |
 | Documents | document properties (color mode, bleed, units); list and switch done |
-| Inspection | text overflow detection (structure, artboard, selection, appearance, typography done) |
-| Text | missing-font report, style-preserving text replace, font replace, outlines, character ranges, paragraph spacing |
+| Inspection | none open (structure, artboard, selection, appearance, typography, text overflow done) |
+| Text | none open (missing-font report, style-preserving replace, font replace, outlines, character ranges, paragraph spacing done). Not covered: character/paragraph *styles*, OpenType features, fitting text to its frame |
 | Transforms | move/scale in absolute mode, rotate around combined bounds |
 | Effects | live drop shadow and Gaussian blur (apply, read, remove) |
 | Swatches | read document and library swatches, create swatches and groups |
 | Paths | simplify / smooth cleanup, rasterize |
-| Preflight | images, links, fonts, overprint, rich black, scoped report |
+| Preflight | none open (scoped report with images, links, fonts, overset, overprint, rich black, total ink done). Not covered: font embedding rights, transparency flattening, trapping, output-intent / ICC checks, link status of *placed* files (not exposed to scripts) |
 
 ## Not adopting
 
@@ -114,3 +116,50 @@ already asks questions), and the prompt relay to Adobe's assistant.
   The typed tools sidestep this by reporting artboard and object bounds in one canvas space.
 - No ExtendScript access to Illustrator's artboard preset table was found; presets ship as our own
   data (`ARTBOARD_PRESETS`).
+
+## Verified live in phase 2 (Illustrator 30.8.1)
+
+Text:
+- `TextFrame.textRanges` is one range per *character*, not per style run; runs must be rebuilt by
+  comparing neighbours. In the continuation frame of a threaded story `textRanges` is indexed by
+  position in the story (indices below `textRange.start` throw "The specified text range is
+  invalid" although `length` is the frame's), so frames are read through `story.textRanges`.
+- `story.characters[i]` with `.length = n` addresses an n-character range; assigning `.contents`
+  to it gives the new text the attributes of its first character, so a uniformly styled match
+  keeps its style on replace. Reading characters one by one is ~15x slower than indexing a cached
+  `textRanges` collection.
+- Missing fonts: `app.textFonts.getByName()` does not throw for a missing font; Illustrator
+  registers a placeholder, and the run's `textFont.family` carries an embedded-subset prefix
+  (`XPUYQY+Name`) that differs from the installed record's family. A removed font disappears
+  from `app.textFonts` only once no open document uses it. Blind spot: a file saved without PDF
+  compatibility reopens with the run bound to the placeholder record itself, and nothing in the
+  DOM tells it from an installed font.
+- Overflow: composed `lines` cover only the visible text; the story text past the end of the last
+  line is hidden. The last frame of a thread reports itself as its own `nextFrame`; `nextFrame`
+  and `previousFrame` throw for point and path text. Path text can overflow.
+- `TextFrame.createOutline()` returns a `GroupItem` of one `CompoundPathItem` per glyph, drops the
+  frame's name and note (restored onto the group by `illustrator_text`) and invalidates its uuid.
+- Paragraph spacing is `paragraphAttributes.spaceBefore` / `spaceAfter`; `characterAttributes.size`,
+  `tracking` and `fillColor` read back exactly in an RGB document (in CMYK Illustrator converts an
+  RGB fill).
+
+Preflight facts:
+- Effective PPI of a placed or embedded raster is 72 / the matrix scale (`matrix.mValueA..D`) against
+  `boundingBox` pixel size; `PlacedItem.file` throws "There is no file associated with this item"
+  for a missing link; `RasterItem.status` is `RasterLinkState.DATAFROMFILE` / `DATAMODIFIED` /
+  `NODATA`. A placed (linked) file exposes no link status to scripts.
+- The `[Registration]` swatch is a `SpotColor` with `spot.colorType === ColorModel.REGISTRATION`;
+  `fillOverprint` reads back on paths.
+- A document opened from a file whose font is missing shows nothing to scripts besides the
+  placeholder signal above; SVG and PDF imports substitute Arial instead of leaving a missing font.
+
+Transport (affects every tool):
+- Illustrator's native `JSON` has `stringify` but **no `parse`**, and its `stringify` escapes only
+  `"` and `\n`: tab, `\r`, other control characters, U+2028/U+2029 and the backslash come out raw.
+  host.jsx's "already an envelope" passthrough needs `JSON.parse`, so it never fires and every
+  result string is stringified twice. Any result containing a quote, a backslash or a control
+  character then fails the CEP panel's strict `JSON.parse`. The typed tools avoid this with a
+  `dm1:` wire format (see CHANGELOG). **Open:** the other tools (`execute_script`, `execute_task`,
+  `get_document`, `query_items`, ...) still depend on host.jsx's serialization; a fix belongs in
+  host.jsx (own serializer, drop the dead passthrough) and needs a panel rebuild, so it was not
+  made here.

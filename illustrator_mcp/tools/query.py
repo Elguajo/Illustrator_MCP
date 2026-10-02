@@ -15,7 +15,7 @@ from illustrator_mcp.proxy_client import execute_script_with_context, format_env
 from illustrator_mcp.libraries import get_injection_metadata
 from illustrator_mcp.errors import ErrorCode, make_envelope
 from illustrator_mcp.tools.base import ToolInputBase, TOOL_ANNOTATIONS
-from illustrator_mcp.tools.doc_model_tools import dm_script
+from illustrator_mcp.tools.doc_model_tools import dm_script, unwrap_dm_response
 from illustrator_mcp.tools.task_execution import _taskreport_first_error
 from illustrator_mcp.utils.response import unwrap_jsx_result
 
@@ -435,7 +435,9 @@ async def illustrator_preflight_check(params: PreflightCheckInput) -> str:
         # which never exists there, so preflight_data was always {}: every
         # call silently reported ok=true with no checks, no issues, nothing.
         # unwrap_jsx_result is the shared, already-tested helper for this.
-        preflight_data = unwrap_jsx_result(response, context="preflight_check")
+        preflight_data = unwrap_dm_response(response)
+        if not isinstance(preflight_data, dict):
+            preflight_data = unwrap_jsx_result(response, context="preflight_check")
 
         if isinstance(preflight_data, dict) and "__dm_request_error" in preflight_data:
             return make_envelope(

@@ -100,7 +100,18 @@ Schemas are **compiled artifacts**, not hand-written.
 
 ---
 
-## 6. Go/No-Go PR Checklist
+## 6. Typed-Tool Results
+
+Tools built on `dm_script` / `run_dm` (`doc_model_tools.py`) return their result through
+`__dmWire`: `dm1:` + JSON from our own serializer with `%`, `\` and `"` percent-encoded.
+Never return `JSON.stringify(...)` from such a tool: Illustrator's native `JSON` has no `parse`
+and leaves backslashes and control characters unescaped, so host.jsx re-serialization produces
+a string the panel cannot parse. Python decodes with `decode_dm_wire` / `unwrap_dm_response`.
+`tests/test_dm_json_escaping.py` pins this against the real host.jsx.
+
+---
+
+## 7. Go/No-Go PR Checklist
 
 Before merging any PR touching `resources/scripts/`:
 
