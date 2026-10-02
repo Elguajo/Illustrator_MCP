@@ -129,14 +129,22 @@ class IdTarget(BaseModel):
 class UuidTarget(BaseModel):
     """Target existing PageItems by Illustrator's native, session-scoped ``uuid``.
 
-    uuids come from illustrator_inspect. A missing, hidden, or locked item
-    fails the collect stage rather than being skipped.
+    uuids come from illustrator_inspect. They are numbered per document and
+    collide across open documents, so the target names the document they came
+    from; the collect stage fails when another document is active. A missing,
+    hidden, or locked item also fails the collect stage rather than being
+    skipped.
     """
     type: Literal["uuid"] = "uuid"
     uuids: List[str] = Field(
         ...,
         min_length=1,
         description="Native PageItem uuids as returned by illustrator_inspect",
+    )
+    document: str = Field(
+        ...,
+        min_length=1,
+        description="result.document.name from the illustrator_inspect call that returned the uuids",
     )
 
 

@@ -689,9 +689,13 @@ function resolveGroundedIdTargets(doc, target) {
 }
 
 /**
- * Resolve a {type: "uuid", uuids: [...]} target through Illustrator's native
- * PageItem.uuid (see resolvePageItemByUuid in mcp_id.jsx). O(1) per uuid,
- * unlike @mcp:id targets which scan doc.pageItems.
+ * Resolve a {type: "uuid", uuids: [...], document: name} target through
+ * Illustrator's native PageItem.uuid (see resolvePageItemByUuid in
+ * mcp_id.jsx). O(1) per uuid, unlike @mcp:id targets which scan
+ * doc.pageItems.
+ * uuids are numbered per document and collide across open documents, so a
+ * target whose document is not doc fails before any lookup: after a document
+ * switch the same numbers would name the new document's objects.
  * Same safety contract as grounded id targets: a missing, hidden or locked
  * item fails the collect stage instead of being silently skipped.
  * @param {Document} doc
@@ -699,6 +703,23 @@ function resolveGroundedIdTargets(doc, target) {
  * @returns {Array<PageItem>}
  */
 function resolveUuidTargets(doc, target) {
+    if (typeof target.document !== "string" || !target.document) {
+        // validatePayload checks only a top-level target; compound children
+        // and SOC op targets reach this point unchecked.
+        groundedTargetError(ErrorCodes.V_MISSING_REQUIRED_PARAM,
+            "uuid target requires document: pass result.document.name from the " +
+                "illustrator_inspect call that returned the uuids",
+            { reason: "missing_document" });
+    }
+    var activeName = String(doc.name);
+    if (target.document !== activeName) {
+        groundedTargetError(ErrorCodes.R_COLLECT_FAILED,
+            "uuid target belongs to document '" + target.document + "' but the active document is '" +
+                activeName + "'. uuids are numbered per document, so they are not applied here. " +
+                "Switch back with illustrator_document(action='switch', name='" + target.document +
+                "') or call illustrator_inspect again on this document.",
+            { reason: "document_mismatch", expected_document: target.document, active_document: activeName });
+    }
     var requested = target.uuids || [];
     var seen = {};
     var items = [];

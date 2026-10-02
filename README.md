@@ -482,19 +482,22 @@ object. Pass it straight to the Task Protocol; no `@mcp:id` tagging (and no
 `item.note` mutation) is needed:
 
 ```python
-illustrator_inspect(view="artboard")                       # -> nodes[].uuid
+illustrator_inspect(view="artboard")                       # -> nodes[].uuid, document.name
 illustrator_inspect(view="details", uuids=["484"])          # exact paint, fonts
 illustrator_execute_task(payload={
   "task": "style_set_fill",
-  "targets": {"type": "uuid", "uuids": ["484"]},
+  "targets": {"type": "uuid", "uuids": ["484"], "document": "poster.ai"},
   "params": {"r": 0, "g": 160, "b": 80},
 })
 ```
 
 A uuid is session-scoped: Illustrator reissues uuids for new objects when the
 file is closed and reopened, so use `@mcp:id` when an identity must survive a
-reopen. A missing, hidden, or locked uuid target fails the collect stage rather
-than being skipped. Layers and artboards have no uuid; address them by layer
+reopen. uuids are numbered per document and collide across open documents, so
+a uuid target names the document it came from (`document` = the inspect
+result's `document.name`); if another document is active, the task fails with
+`reason: "document_mismatch"` instead of acting on it. A missing, hidden, or
+locked uuid target also fails the collect stage rather than being skipped. Layers and artboards have no uuid; address them by layer
 path and artboard index or name.
 
 ### Auto-Grounding

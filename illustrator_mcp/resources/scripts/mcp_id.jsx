@@ -64,13 +64,16 @@ function removeIdFromNote(note) {
 /**
  * Resolve Illustrator's native PageItem.uuid (AI 24+) to its PageItem.
  *
- * Two behaviours observed live on Illustrator 30.8.1 shape this function:
+ * Three behaviours observed live on Illustrator 30.8.1 shape this function:
  *  - getPageItemFromUuid() THROWS on an unknown uuid instead of returning
  *    null, so a miss is caught and reported as null.
  *  - For a CompoundPathItem it returns a different object typed GroupItem
  *    (same uuid, same parent). Code that then sets fillColor on that
  *    "group" fails or silently does nothing. The real CompoundPathItem is
  *    recovered from the wrapper's parent by uuid.
+ *  - It ignores its receiver and resolves in app.activeDocument, and uuids
+ *    collide across open documents. A hit owned by any document other than
+ *    doc is therefore reported as null, never returned.
  *
  * @param {Document} doc
  * @param {string} uuid
@@ -85,6 +88,7 @@ function resolvePageItemByUuid(doc, uuid) {
         return null;
     }
     if (!found) return null;
+    if (ownerDocumentOf(found) !== doc) return null;
     if (found.typename === "GroupItem") {
         try {
             var siblings = found.parent.compoundPathItems;
@@ -96,4 +100,24 @@ function resolvePageItemByUuid(doc, uuid) {
         }
     }
     return found;
+}
+
+/**
+ * Walk item.parent up to the owning Document.
+ * Returns null when the chain cannot be read, so callers fail closed.
+ * @param {PageItem} item
+ * @returns {Document|null}
+ */
+function ownerDocumentOf(item) {
+    try {
+        var cur = item.parent;
+        // Bounded: nesting depth is far below this; it only guards a cycle.
+        for (var depth = 0; cur && depth < 1000; depth++) {
+            if (cur.typename === "Document") return cur;
+            cur = cur.parent;
+        }
+    } catch (e) {
+        // An unreadable parent chain is not proof of ownership.
+    }
+    return null;
 }

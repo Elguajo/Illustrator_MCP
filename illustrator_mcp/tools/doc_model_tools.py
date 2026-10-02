@@ -161,7 +161,8 @@ async def illustrator_inspect(params: InspectInput) -> str:
       view='details' only for the few objects you need to read closely.
       Every PageItem node carries 'uuid' (session-scoped) and 'mcp_id' when one
       was assigned (survives save and reopen). Layers have no uuid; they are
-      identified by 'layer_path'.
+      identified by 'layer_path'. uuids are numbered per document and collide
+      across open documents, so every result names its 'document' {name, path}.
 
     COORDINATE SYSTEM:
       - bounds are canvas-global points, Y-down: [left, top, right, bottom]
@@ -176,11 +177,13 @@ async def illustrator_inspect(params: InspectInput) -> str:
     NOTES:
       - Size-capped results set truncated=true and a resume_hint naming where to continue
       - Unknown uuids are listed in failed_objects instead of failing the call
-      - Act on the returned uuids with illustrator_execute_task targets {"type": "uuid", "uuids": [...]}
+      - Act on the returned uuids with illustrator_execute_task targets
+        {"type": "uuid", "uuids": [...], "document": result.document.name}; the task
+        fails instead of acting if another document has become active
     """
     payload = params.model_dump(exclude_none=True)
     return await run_dm(
-        _VIEW_CALLS[params.view],
+        f"dmWithDocument(doc, {_VIEW_CALLS[params.view]})",
         payload,
         command_type=f"inspect_{params.view}",
         tool_name=_INSPECT_NAME,

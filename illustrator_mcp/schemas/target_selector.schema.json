@@ -300,7 +300,7 @@
       "type": "object"
     },
     "UuidTarget": {
-      "description": "Target existing PageItems by Illustrator's native, session-scoped ``uuid``.\n\nuuids come from illustrator_inspect. A missing, hidden, or locked item\nfails the collect stage rather than being skipped.",
+      "description": "Target existing PageItems by Illustrator's native, session-scoped ``uuid``.\n\nuuids come from illustrator_inspect. They are numbered per document and\ncollide across open documents, so the target names the document they came\nfrom; the collect stage fails when another document is active. A missing,\nhidden, or locked item also fails the collect stage rather than being\nskipped.",
       "properties": {
         "type": {
           "const": "uuid",
@@ -316,10 +316,17 @@
           "minItems": 1,
           "title": "Uuids",
           "type": "array"
+        },
+        "document": {
+          "description": "result.document.name from the illustrator_inspect call that returned the uuids",
+          "minLength": 1,
+          "title": "Document",
+          "type": "string"
         }
       },
       "required": [
-        "uuids"
+        "uuids",
+        "document"
       ],
       "title": "UuidTarget",
       "type": "object"
