@@ -4,6 +4,7 @@
  * Tests pure JSX modules that have NO Illustrator DOM dependency:
  * - geo_ir.jsx (geometry IR validation, mapping, flattening)
  * - mcp_id.jsx (ID extraction, note manipulation)
+ * - heap.jsx (transaction-scoped ID index)
  *
  * Run with: node tests_jsx/run_tests.js
  *
@@ -331,30 +332,6 @@ describe("mcp_id — removeIdFromNote", function () {
     });
 });
 
-describe("mcp_id — removeFromIdIndex", function () {
-    it("removes ID from global index", function () {
-        $.global.mcpIdIndex = { docName: "test", index: { "a": "itemA", "b": "itemB" } };
-        assert(removeFromIdIndex("a"), "should return true");
-        assertEqual($.global.mcpIdIndex.index["a"], undefined, "removed");
-        assertEqual($.global.mcpIdIndex.index["b"], "itemB", "other preserved");
-    });
-
-    it("returns false for missing ID", function () {
-        $.global.mcpIdIndex = { docName: "test", index: {} };
-        assert(!removeFromIdIndex("nonexistent"), "should return false");
-    });
-
-    it("returns false when no index exists", function () {
-        $.global.mcpIdIndex = null;
-        assert(!removeFromIdIndex("any"), "null index");
-    });
-
-    it("returns false for null ID", function () {
-        assert(!removeFromIdIndex(null));
-        assert(!removeFromIdIndex(""));
-    });
-});
-
 // ==================== heap.jsx Tests ====================
 
 // Helper: reset heap state before each test group
@@ -439,6 +416,59 @@ describe("heap — Tombstoning", function () {
         heapTombstone("item2");
         heapCommitTxn();
         assertEqual(heapDiagnostics().indexSize, 0);
+    });
+});
+
+describe("heap — Tombstone Edge Cases", function () {
+    // Successor coverage for the removed mcp_id removeFromIdIndex(); ID index
+    // mutations now go through heap.jsx (ARCHITECTURE_DOCTRINE.md section 2).
+
+    it("heapTombstone removes only the target ID", function () {
+        resetHeap();
+        var b = { note: "@mcp:id=b" };
+        $.global.mcpHeap.index["a"] = { note: "@mcp:id=a" };
+        $.global.mcpHeap.index["b"] = b;
+        heapBeginTxn("batch-tomb-1");
+        heapTombstone("a");
+        assertEqual($.global.mcpHeap.index["a"], undefined, "target removed");
+        assertEqual($.global.mcpHeap.index["b"], b, "other entry preserved");
+        assertEqual(heapDiagnostics().indexSize, 1);
+    });
+
+    it("heapTombstone of a missing ID records no deletion to restore", function () {
+        resetHeap();
+        heapBeginTxn("batch-tomb-2");
+        heapTombstone("nonexistent");
+        assertEqual(heapDiagnostics().txnDeleted, 0, "nothing recorded as deleted");
+        var stats = heapRollbackTxn();
+        assertEqual(stats.rolledBackDeletes, 0, "nothing restored");
+        assert(!$.global.mcpHeap.index.hasOwnProperty("nonexistent"), "no phantom index key");
+    });
+
+    it("heapTombstone without an active transaction still removes the ID", function () {
+        resetHeap();
+        $.global.mcpHeap.index["solo"] = { note: "@mcp:id=solo" };
+        heapTombstone("solo");
+        assertEqual(heapDiagnostics().indexSize, 0, "removed from index");
+        assertEqual(heapDiagnostics().hasTxn, false, "no txn created");
+    });
+
+    it("heapTombstone with null/empty ID is a no-op", function () {
+        resetHeap();
+        // extractMcpId accepts these literal IDs, so an unguarded tombstone
+        // would evict them through key coercion.
+        var nullItem = { note: "@mcp:id=null" };
+        var undefItem = { note: "@mcp:id=undefined" };
+        $.global.mcpHeap.index["null"] = nullItem;
+        $.global.mcpHeap.index["undefined"] = undefItem;
+        heapBeginTxn("batch-tomb-4");
+        heapTombstone(null);
+        heapTombstone(undefined);
+        heapTombstone("");
+        assertEqual(heapDiagnostics().indexSize, 2, "index untouched");
+        assertEqual(heapDiagnostics().txnDeleted, 0, "nothing recorded as deleted");
+        assertEqual(heapResolve("null", null), nullItem, "'null' ID not tombstoned");
+        assertEqual(heapResolve("undefined", null), undefItem, "'undefined' ID not tombstoned");
     });
 });
 
