@@ -115,7 +115,7 @@ function build(spec) {
   return { doc: doc, byName: byName };
 }
 var app = { textFonts: { getByName: function (n) {
-  if (n.indexOf("Missing") === 0) throw new Error("No such element"); return {}; } } };
+  if (n.indexOf("Missing") === 0) throw new Error("No such element"); return { name: n, family: n }; } } };
 """
 
 

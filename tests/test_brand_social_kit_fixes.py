@@ -61,11 +61,6 @@ def _export_source() -> str:
     return inspect.getsource(documents.illustrator_export_document)
 
 
-def _preflight_source() -> str:
-    from illustrator_mcp.tools import query
-    return inspect.getsource(query.illustrator_preflight_check)
-
-
 def _make_mock_export_response(on_artboard=5, off_artboard=0, skipped=2):
     """Build a realistic nested CEP response for the precheck."""
     return {"result": json.dumps({
@@ -326,47 +321,9 @@ class TestPrecheckScope:
 # ======================================================================
 
 
-class TestGuideFiltering:
-    """Fix 3: Guide lines should be skipped in zero-size check."""
-
-    def test_guide_skip_in_preflight_jsx(self):
-        """Verify the inline JSX contains guide filtering."""
-        source = _preflight_source()
-        assert "item.guides" in source
-
-    def test_guide_check_after_hidden_check(self):
-        """Guides filter must come AFTER the hidden/layer-hidden check."""
-        source = _preflight_source()
-        # Find the zero-size section
-        zs_start = source.find("Zero-size check")
-        zs_section = source[zs_start:]
-
-        hidden_pos = zs_section.find("item.hidden")
-        guide_pos = zs_section.find("item.guides")
-
-        assert hidden_pos < guide_pos, \
-            "Guide check should come after hidden check in zero-size section"
-
-    def test_guide_check_before_width_height(self):
-        """Guides filter must come BEFORE the width/height comparison."""
-        source = _preflight_source()
-        zs_start = source.find("Zero-size check")
-        zs_section = source[zs_start:]
-
-        guide_pos = zs_section.find("item.guides")
-        width_pos = zs_section.find("item.width === 0")
-
-        assert guide_pos < width_pos, \
-            "Guide check should come before width/height check"
-
-    def test_guide_check_uses_continue(self):
-        """Guide filter skips the item with continue statement."""
-        source = _preflight_source()
-        # Find the line containing item.guides
-        for line in source.splitlines():
-            if "item.guides" in line and "continue" in line:
-                return  # Found it
-        pytest.fail("Expected 'item.guides' line with 'continue'")
+# The inline preflight JSX these source-text tests inspected was replaced by
+# preflight.jsx (preflight v2). Guide skipping is now covered behaviourally:
+# tests/test_preflight_v2.py::TestObjects::test_guides_are_not_zero_size.
 
 
 # ======================================================================
@@ -439,47 +396,9 @@ class TestLayerVisibilityFiltering:
         assert helper_pos < counter_pos, \
             "isLayerHidden should be declared before countItemsOnArtboard"
 
-    # --- query.py (inline JSX) ---
-
-    def test_query_py_has_isLayerHidden_inline(self):
-        """query.py inline JSX contains isLayerHidden helper."""
-        source = _preflight_source()
-        assert "function isLayerHidden(item)" in source
-
-    def test_query_py_isLayerHidden_used_in_zero_size(self):
-        """isLayerHidden(item) is used in zero-size check."""
-        source = _preflight_source()
-        zs_start = source.find("Zero-size check")
-        zs_end = source.find("Empty text", zs_start)
-        zs_section = source[zs_start:zs_end]
-
-        assert "isLayerHidden(item)" in zs_section
-
-    def test_query_py_isLayerHidden_used_in_empty_text(self):
-        """isLayerHidden(tf) is used in empty text check."""
-        source = _preflight_source()
-        et_start = source.find("Empty text")
-        et_section = source[et_start:]
-
-        assert "isLayerHidden(tf)" in et_section
-
-    def test_query_py_isLayerHidden_declared_before_use(self):
-        """isLayerHidden helper is declared before the zero-size check."""
-        source = _preflight_source()
-        decl_pos = source.find("function isLayerHidden(item)")
-        use_pos = source.find("isLayerHidden(item)")
-
-        assert decl_pos < use_pos
-
-    def test_query_py_layer_hidden_combined_with_item_hidden(self):
-        """Zero-size uses (item.hidden || isLayerHidden(item)) together."""
-        source = _preflight_source()
-        assert "item.hidden || isLayerHidden(item)" in source
-
-    def test_query_py_layer_hidden_combined_with_tf_hidden(self):
-        """Empty text uses (tf.hidden || isLayerHidden(tf)) together."""
-        source = _preflight_source()
-        assert "tf.hidden || isLayerHidden(tf)" in source
+    # --- preflight (formerly inline JSX in query.py) ---
+    # Hidden-layer exclusion is covered behaviourally in
+    # tests/test_preflight_v2.py::TestHiddenAndLocked.
 
     # --- manifest.json ---
 

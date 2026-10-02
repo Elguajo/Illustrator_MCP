@@ -506,6 +506,154 @@ function dmFontAvailable(psName) {
     return ok;
 }
 
+var _dmFontStatusCache = {};
+
+/**
+ * Whether a run's TextFont is really installed. getByName() alone is not
+ * enough: for a missing font Illustrator registers a placeholder in
+ * app.textFonts, so the lookup succeeds (observed on AI 30.8.1).
+ * Two signals are reliable:
+ *   - the run's font carries an embedded-subset family ("XPUYQY+Name"),
+ *     or differs from the record app.textFonts returns for its name;
+ *   - getByName() throws.
+ * Blind spot: in a file saved without PDF compatibility the run uses the
+ * placeholder record itself and nothing in the DOM distinguishes it.
+ */
+function dmFontStatus(font) {
+    var name, family;
+    try {
+        name = String(font.name);
+        family = String(font.family);
+    } catch (e) {
+        return { available: false, reason: "unreadable" };
+    }
+    var key = name + "|" + family;
+    if (_dmFontStatusCache.hasOwnProperty(key)) return _dmFontStatusCache[key];
+    var st;
+    if (/^[A-Z]{6}\+/.test(family)) {
+        st = { available: false, reason: "embedded_subset_only" };
+    } else {
+        try {
+            var rec = app.textFonts.getByName(name);
+            st = String(rec.family) === family ? { available: true } : { available: false, reason: "not_installed" };
+        } catch (e2) {
+            st = { available: false, reason: "not_installed" };
+        }
+    }
+    _dmFontStatusCache[key] = st;
+    return st;
+}
+
+function dmColorKey(c) {
+    if (!c) return "null";
+    var t = c.typename;
+    try {
+        if (t === "RGBColor") return "rgb:" + dmRound(c.red) + "," + dmRound(c.green) + "," + dmRound(c.blue);
+        if (t === "CMYKColor") return "cmyk:" + dmRound(c.cyan) + "," + dmRound(c.magenta) + "," + dmRound(c.yellow) + "," + dmRound(c.black);
+        if (t === "GrayColor") return "gray:" + dmRound(c.gray);
+        if (t === "SpotColor") return "spot:" + c.spot.name + "@" + dmRound(c.tint);
+        if (t === "PatternColor") return "pattern:" + c.pattern.name;
+        if (t === "GradientColor") return "gradient:" + c.gradient.name;
+    } catch (e) {}
+    return t;
+}
+
+/**
+ * Contiguous style runs of a text frame or story.
+ * TextFrame.textRanges yields one range per *character*, not per run
+ * (observed on AI 30.8.1), so runs are rebuilt by comparing neighbours.
+ * Indexing the cached collection is cheap (~40us per character); going
+ * through characters[i] is ~15x slower.
+ * opts.max_chars: scan budget (default 100000); opts.fill: split runs on
+ * fill color too and report it.
+ */
+function dmFontRuns(textObj, opts) {
+    opts = opts || {};
+    var maxChars = opts.max_chars || 100000;
+    var ranges = textObj.textRanges;
+    var n = ranges.length;
+    var limit = Math.min(n, maxChars);
+    var runs = [];
+    var cur = null;
+    for (var i = 0; i < limit; i++) {
+        var ca = ranges[i].characterAttributes;
+        var font = ca.textFont;
+        var fname = String(font.name);
+        var size = ca.size;
+        var fill = opts.fill ? ca.fillColor : null;
+        var key = fname + "|" + size + (opts.fill ? "|" + dmColorKey(fill) : "");
+        if (cur && cur.key === key) {
+            cur.length++;
+            continue;
+        }
+        cur = { key: key, start: i, length: 1, font: fname, family: String(font.family),
+            style: String(font.style), size: dmRound(size), _font: font };
+        if (opts.fill) cur.fill = dmColor(fill);
+        runs.push(cur);
+    }
+    for (var r = 0; r < runs.length; r++) {
+        var st = dmFontStatus(runs[r]._font);
+        runs[r].available = st.available;
+        if (!st.available) runs[r].missing_reason = st.reason;
+        delete runs[r]._font;
+        delete runs[r].key;
+    }
+    return { runs: runs, char_count: n, scanned: limit, truncated: limit < n };
+}
+
+/**
+ * Overset (overflowing) text of an area or path text frame.
+ * Composed lines cover only the visible text; anything in the story past
+ * the last line of the last frame is hidden. Only non-whitespace counts,
+ * so a trailing paragraph return is not overset. Point text never
+ * overflows (returns null). A frame that threads on into another frame
+ * reports overset=false: its overflow continues there.
+ * Verified live on AI 30.8.1 for area text, threaded area text and path text.
+ */
+function dmTextOverflow(tf) {
+    var kind = String(tf.kind);
+    if (kind.indexOf("POINTTEXT") >= 0) return null;
+    if (kind.indexOf("AREATEXT") >= 0) {
+        try {
+            // The last frame of a thread reports itself as its own nextFrame.
+            var nx = tf.nextFrame;
+            if (nx && dmUuid(nx) !== dmUuid(tf)) return { overset: false, continues_in: dmUuid(nx) };
+        } catch (e) {}
+    }
+    var lines = tf.lines;
+    var hiddenFrom;
+    if (lines.length) {
+        var last = lines[lines.length - 1];
+        hiddenFrom = last.start + last.length;
+    } else {
+        hiddenFrom = tf.textRange.start;
+    }
+    var hidden = String(tf.story.textRange.contents).substring(hiddenFrom);
+    var visible = hidden.replace(/[\s\u0003]/g, "");
+    if (!visible.length) return { overset: false };
+    return { overset: true, overset_chars: hidden.length,
+        overset_preview: hidden.length > 60 ? hidden.substring(0, 60) + "..." : hidden };
+}
+
+/** Locked/hidden state including every enclosing group and layer. */
+function dmEffectiveState(item) {
+    var st = { locked: false, hidden: false };
+    var cur = item;
+    var guard = 0;
+    while (cur && cur.typename !== "Document" && guard++ < 100) {
+        try {
+            if (cur.typename === "Layer") {
+                if (!cur.visible) st.hidden = true;
+            } else if (cur.hidden) {
+                st.hidden = true;
+            }
+        } catch (e) {}
+        try { if (cur.locked) st.locked = true; } catch (e2) {}
+        try { cur = cur.parent; } catch (e3) { break; }
+    }
+    return st;
+}
+
 function dmTextDetails(tf) {
     var t = {};
     try {
@@ -516,26 +664,33 @@ function dmTextDetails(tf) {
     } catch (e) {}
     try { t.kind = String(tf.kind).replace("TextType.", "").toLowerCase(); } catch (e) {}
     try { t.paragraph_count = tf.paragraphs.length; } catch (e) {}
-    // Font runs: TextFrame.textRanges yields one range per style run.
+    // Distinct font/size pairs over the whole frame (runs rebuilt per character).
     var runs = [];
     var seen = {};
     try {
-        var ranges = tf.textRanges;
-        var n = Math.min(ranges.length, 200);
-        for (var i = 0; i < n; i++) {
-            var ca = ranges[i].characterAttributes;
-            var font = ca.textFont;
-            var key = font.name + "|" + ca.size;
+        var fr = dmFontRuns(tf);
+        for (var i = 0; i < fr.runs.length; i++) {
+            var r = fr.runs[i];
+            var key = r.font + "|" + r.size;
             if (seen[key]) continue;
             seen[key] = true;
-            runs.push({ font: font.name, family: font.family, style: font.style,
-                size: dmRound(ca.size), available: dmFontAvailable(font.name) });
+            if (runs.length >= 200) { t.font_runs_truncated = true; break; }
+            var entry = { font: r.font, family: r.family, style: r.style, size: r.size,
+                available: r.available, first_char: r.start };
+            if (!r.available) entry.missing_reason = r.missing_reason;
+            runs.push(entry);
         }
-        if (ranges.length > 200) t.font_runs_truncated = true;
+        if (fr.truncated) t.font_runs_truncated = true;
     } catch (e) {
         t.font_runs_error = String(e.message || e);
     }
     t.font_runs = runs;
+    try {
+        var ov = dmTextOverflow(tf);
+        if (ov) t.overflow = ov;
+    } catch (e) {
+        t.overflow_error = String(e.message || e);
+    }
     return t;
 }
 

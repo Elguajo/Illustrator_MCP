@@ -6,7 +6,7 @@ for more structured, observable, and debuggable operations.
 """
 
 import json
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Literal, Optional
 from pydantic import Field
 
 import logging
@@ -15,6 +15,7 @@ from illustrator_mcp.proxy_client import execute_script_with_context, format_env
 from illustrator_mcp.libraries import get_injection_metadata
 from illustrator_mcp.errors import ErrorCode, make_envelope
 from illustrator_mcp.tools.base import ToolInputBase, TOOL_ANNOTATIONS
+from illustrator_mcp.tools.doc_model_tools import dm_script
 from illustrator_mcp.tools.task_execution import _taskreport_first_error
 from illustrator_mcp.utils.response import unwrap_jsx_result
 
@@ -249,12 +250,24 @@ if (typeof executeTask !== "function" || typeof validatePayload !== "function") 
 # ==================== Preflight Check Tool ====================
 
 
+PreflightScope = Literal["document", "objects", "text", "images", "links", "colors"]
+
+
 class PreflightCheckInput(ToolInputBase):
-    """Input for preflight document validation."""
+    """Input for the scoped preflight report."""
+
+    scopes: Optional[List[PreflightScope]] = Field(
+        default=None,
+        description=(
+            "Check categories to run (default: all): document, objects, text, images, links, colors. "
+            "Checks outside these scopes are listed in checks_skipped."
+        ),
+    )
 
     artboard_index: Optional[int] = Field(
         default=None,
-        description="Artboard index to check (None = active artboard)"
+        ge=0,
+        description="Reference artboard for off-artboard checks (None = every artboard counts)",
     )
 
     bounds_type: str = Field(
@@ -269,236 +282,130 @@ class PreflightCheckInput(ToolInputBase):
 
     policy: str = Field(
         default="fully-contained",
-        description="Containment policy: 'fully-contained' (entire item on artboard) or 'intersects' (any overlap)"
+        description=(
+            "'fully-contained' also reports objects crossing an artboard edge (objects.partially_off_artboard); "
+            "'intersects' reports only objects entirely off the artboards"
+        ),
     )
 
     scope: str = Field(
         default="document",
-        description="Item scope: 'document' (all items) or 'artboard' (items on target artboard)"
+        description=(
+            "Item filter (legacy name, not the check categories): 'document' (all items) or "
+            "'artboard' (only items centred on artboard_index, default the active artboard)"
+        ),
     )
+
+    min_ppi: float = Field(default=300, gt=0, le=2400, description="images.low_ppi threshold (effective PPI at placed size)")
+    hairline_width: float = Field(default=0.25, ge=0, le=10, description="objects.hairline_stroke threshold in points")
+    total_ink_limit: float = Field(default=300, gt=0, le=400, description="colors.total_ink threshold (C+M+Y+K percent)")
+    max_affected: int = Field(default=50, ge=1, le=1000, description="affected_objects listed per finding (count stays exact)")
+    max_items: int = Field(default=20000, ge=1, le=500000, description="Objects to walk before checks become partial")
+    max_text_chars: int = Field(default=200000, ge=1, le=5000000, description="Characters to scan for fonts/colors before text checks become partial")
 
     check_zero_size: bool = Field(
         default=True,
-        description="Check for zero-size items"
+        description="Run objects.zero_size"
     )
 
     check_empty_text: bool = Field(
         default=True,
-        description="Check for empty text frames"
+        description="Run text.empty_text"
     )
 
     check_locked: bool = Field(
         default=True,
-        description="Report locked layers/items"
+        description="Run objects.locked (informational)"
     )
 
 
 _PREFLIGHT_NAME = "illustrator_preflight_check"
+_PREFLIGHT_INCLUDES = ["doc_model", "preflight"]
+
+
+def _legacy_issues(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """v1 'issues' view of v2 findings, kept for existing callers."""
+    issues = []
+    for f in findings:
+        samples = []
+        for obj in f.get("affected_objects", [])[:10]:
+            samples.append(obj.get("name") or obj.get("uuid") or obj.get("layer_path") or obj.get("spot") or "")
+        issue = {
+            "type": f["tag"].split(".", 1)[-1],
+            "tag": f["tag"],
+            "count": f["count"],
+            "message": f["message"],
+            "samples": samples,
+        }
+        if f.get("severity") == "info":
+            issue["severity"] = "info"
+        issues.append(issue)
+    return issues
 
 
 @mcp.tool(name=_PREFLIGHT_NAME, annotations=TOOL_ANNOTATIONS[_PREFLIGHT_NAME])
 async def illustrator_preflight_check(params: PreflightCheckInput) -> str:
-    """Perform observational validation on the active document.
+    """Report print/export problems in the active document, grouped by issue tag.
 
     CONTRACT: readOnly=True, destructive=False, idempotent=True, openWorld=False
 
     WHEN TO USE:
-      - Before export to catch common issues
-      - Validating document state after a series of modifications
+      - Before export or handoff: missing fonts, overset text, missing links,
+        low-resolution images, hairlines, off-artboard objects, risky colors
+      - After a series of edits, to confirm nothing ended up off the artboard
+      Fixing is done elsewhere: illustrator_text (fonts, text),
+      illustrator_execute_task (objects), illustrator_place_file (links).
 
     KEY CONCEPTS:
-      Checks for: items outside artboard bounds, zero-size items,
-      empty text frames, locked layers/items.
-      Does NOT modify the document.
+      scopes picks the categories: document, objects, text, images, links, colors.
+      Each finding has a tag ('text.missing_font'), severity (error/warning/info),
+      an exact count, and affected_objects[{uuid, name, type, layer_path, ...facts}]
+      capped at max_affected. Use the uuids with illustrator_inspect or illustrator_text.
+      Coverage is explicit: checks_run lists checks that covered every object;
+      checks_skipped lists the rest with a reason (scope_not_requested,
+      disabled_by_parameter, partial, error). Treat a category as clean only
+      when its checks are in checks_run. check_notes names known blind spots.
+      Hidden objects are not checked (they are listed under objects.hidden).
+
+    COORDINATE SYSTEM:
+      - bounds are canvas-global points, Y-down: [left, top, right, bottom]
+
+    EXAMPLES:
+      illustrator_preflight_check()
+      illustrator_preflight_check(scopes=["text", "links"])
+      illustrator_preflight_check(scopes=["images"], min_ppi=150)
+      illustrator_preflight_check(artboard_index=0, policy="intersects")
 
     NOTES:
-      - Returns ok=true if all checks pass, with warnings for issues found
-      - Bounds policy: 'warn' (default) emits warnings; 'error' sets ok=false
+      - ok=true means the check ran; findings arrive in result and as warnings
+        (one per non-info finding)
+      - result.issues is the v1 view of findings (type, count, message, samples)
+      - Effective PPI = image pixels / placed size in inches
     """
-    ab_idx = params.artboard_index if params.artboard_index is not None else 'null'
+    payload = {
+        "scopes": params.scopes,
+        "artboard_index": params.artboard_index,
+        "bounds_type": params.bounds_type,
+        "bounds_source": params.bounds_source,
+        "policy": params.policy,
+        "item_scope": params.scope,
+        "min_ppi": params.min_ppi,
+        "hairline_width": params.hairline_width,
+        "total_ink_limit": params.total_ink_limit,
+        "max_affected": params.max_affected,
+        "max_items": params.max_items,
+        "max_text_chars": params.max_text_chars,
+        "check_zero_size": params.check_zero_size,
+        "check_empty_text": params.check_empty_text,
+        "check_locked": params.check_locked,
+    }
+    payload = {k: v for k, v in payload.items() if v is not None}
+    script = dm_script("pfRun(doc, P)", payload)
 
-    # F9: Use json.dumps for user-supplied strings to prevent JSX injection
-    bounds_type_js = json.dumps(params.bounds_type)
-    bounds_source_js = json.dumps(params.bounds_source)
-    policy_js = json.dumps(params.policy)
-    scope_js = json.dumps(params.scope)
-
-    # Build the preflight check script
-    script = f"""
-// Pre-flight check: verify library functions are available
-(function() {{
-    var doc = app.activeDocument;
-    var result = {{
-        document: doc.name,
-        artboard_index: null,
-        checks: {{}},
-        issues: [],
-        summary: {{
-            total_items: 0,
-            issues_found: 0
-        }}
-    }};
-
-    // Get artboard
-    var abIdx = {ab_idx};
-    if (abIdx === null) {{
-        abIdx = doc.artboards.getActiveArtboardIndex();
-    }}
-    result.artboard_index = abIdx;
-    var ab = doc.artboards[abIdx].artboardRect;
-
-    // 1. Bounds check using validate library
-    var boundsResult = JSON.parse(countItemsOnArtboard({{
-        artboardIndex: abIdx,
-        boundsType: {bounds_type_js},
-        boundsSource: {bounds_source_js},
-        policy: {policy_js},
-        scope: {scope_js},
-        ignoreHidden: true,
-        ignoreLocked: false
-    }}));
-
-    result.checks.bounds = boundsResult;
-    result.summary.total_items = boundsResult.items_checked;
-
-    if (boundsResult.off_artboard > 0) {{
-        result.issues.push({{
-            type: "off_artboard",
-            count: boundsResult.off_artboard,
-            message: boundsResult.off_artboard + " items outside artboard bounds",
-            samples: boundsResult.off_items_sample
-        }});
-        result.summary.issues_found += boundsResult.off_artboard;
-    }}
-
-    // Helper for scope filtering
-    var scope = {scope_js};
-    function isItemCenterOnArtboard(itemBounds, artboardRect) {{
-        var centerX = (itemBounds[0] + itemBounds[2]) / 2;
-        var centerY = (itemBounds[1] + itemBounds[3]) / 2;
-        return (centerX >= artboardRect[0] && centerX <= artboardRect[2] &&
-                centerY <= artboardRect[1] && centerY >= artboardRect[3]);
-    }}
-
-    // Helper for layer-visibility filtering
-    function isLayerHidden(item) {{
-        try {{
-            var l = item.layer;
-            while (l) {{
-                if (!l.visible) return true;
-                if (l.parent && l.parent.typename === 'Layer') {{
-                    l = l.parent;
-                }} else {{
-                    break;
-                }}
-            }}
-        }} catch (e) {{}}
-        return false;
-    }}
-
-    // 2. Zero-size check (scope-aware)
-    if ({str(params.check_zero_size).lower()}) {{
-        var zeroSize = [];
-        for (var i = 0; i < doc.pageItems.length; i++) {{
-            var item = doc.pageItems[i];
-            if (item.hidden || isLayerHidden(item)) continue;
-            if (item.guides) continue;  // guide lines are inherently zero-size
-            try {{
-                var b = item.geometricBounds;
-                // Apply scope filter
-                if (scope === "artboard" && !isItemCenterOnArtboard(b, ab)) continue;
-
-                if (item.width === 0 || item.height === 0) {{
-                    zeroSize.push(item.name || ("item_" + i));
-                }}
-            }} catch (e) {{
-                // Some items may not have width/height
-            }}
-        }}
-        result.checks.zero_size = {{ count: zeroSize.length, items: zeroSize.slice(0, 10) }};
-        if (zeroSize.length > 0) {{
-            result.issues.push({{
-                type: "zero_size",
-                count: zeroSize.length,
-                message: zeroSize.length + " items have zero width or height",
-                samples: zeroSize.slice(0, 10)
-            }});
-            result.summary.issues_found += zeroSize.length;
-        }}
-    }}
-
-    // 3. Empty text frames check (scope-aware)
-    if ({str(params.check_empty_text).lower()}) {{
-        var emptyText = [];
-        for (var i = 0; i < doc.textFrames.length; i++) {{
-            var tf = doc.textFrames[i];
-            if (tf.hidden || isLayerHidden(tf)) continue;
-            try {{
-                var b = tf.geometricBounds;
-                // Apply scope filter
-                if (scope === "artboard" && !isItemCenterOnArtboard(b, ab)) continue;
-
-                var content = tf.contents.replace(/\\s/g, "");
-                if (content.length === 0) {{
-                    emptyText.push(tf.name || ("textFrame_" + i));
-                }}
-            }} catch (e) {{
-                // Some items may not have bounds accessible
-            }}
-        }}
-        result.checks.empty_text = {{ count: emptyText.length, items: emptyText.slice(0, 10) }};
-        if (emptyText.length > 0) {{
-            result.issues.push({{
-                type: "empty_text",
-                count: emptyText.length,
-                message: emptyText.length + " empty text frames",
-                samples: emptyText.slice(0, 10)
-            }});
-            result.summary.issues_found += emptyText.length;
-        }}
-    }}
-
-    // 4. Locked layers/items check
-    if ({str(params.check_locked).lower()}) {{
-        var lockedLayers = [];
-        var lockedItems = 0;
-
-        for (var i = 0; i < doc.layers.length; i++) {{
-            var layer = doc.layers[i];
-            if (layer.locked) {{
-                lockedLayers.push(layer.name);
-            }}
-        }}
-
-        for (var i = 0; i < doc.pageItems.length; i++) {{
-            var item = doc.pageItems[i];
-            if (item.locked) lockedItems++;
-        }}
-
-        result.checks.locked = {{
-            locked_layers: lockedLayers,
-            locked_items: lockedItems
-        }};
-
-        // Locked items are informational, not issues
-        if (lockedLayers.length > 0 || lockedItems > 0) {{
-            result.issues.push({{
-                type: "locked",
-                count: lockedLayers.length + lockedItems,
-                message: lockedLayers.length + " locked layers, " + lockedItems + " locked items",
-                severity: "info"
-            }});
-        }}
-    }}
-
-    return JSON.stringify(result);
-}})();
-"""
-
-    # Get canonicalized includes metadata
-    preflight_meta = get_injection_metadata(["validate"])
+    preflight_meta = get_injection_metadata(_PREFLIGHT_INCLUDES)
     diagnostics = {
         "artboard_index": params.artboard_index,
+        "scopes": params.scopes,
         "bounds_type": params.bounds_type,
         "bounds_source": params.bounds_source,
         "policy": params.policy,
@@ -507,7 +414,7 @@ async def illustrator_preflight_check(params: PreflightCheckInput) -> str:
         "prelude_hash": preflight_meta["prelude_hash"]
     }
 
-    logger.info(f"preflight_check: artboard={params.artboard_index}, policy={params.policy}")
+    logger.info(f"preflight_check: scopes={params.scopes}, artboard={params.artboard_index}")
 
     try:
         response = await execute_script_with_context(
@@ -515,7 +422,7 @@ async def illustrator_preflight_check(params: PreflightCheckInput) -> str:
             command_type="preflight_check",
             tool_name="illustrator_preflight_check",
             params=params.model_dump(),
-            includes=["validate"]
+            includes=_PREFLIGHT_INCLUDES,
         )
 
         # Check for pipeline-level errors (connection, library injection, etc.)
@@ -526,35 +433,29 @@ async def illustrator_preflight_check(params: PreflightCheckInput) -> str:
         # return value as {ok: true, data: <value>} — NOT {success, result}.
         # This tool used to look for a "result" key inside that envelope,
         # which never exists there, so preflight_data was always {}: every
-        # call silently reported ok=true with no checks, no issues, nothing —
-        # confirmed live against a document with a real off-artboard item and
-        # a real empty text frame, both invisible to the old code.
-        # unwrap_jsx_result is the shared, already-tested helper for this
-        # (also used by execute.py); it also isn't fooled by the *outer*
-        # response envelope also legitimately containing a "result" key.
+        # call silently reported ok=true with no checks, no issues, nothing.
+        # unwrap_jsx_result is the shared, already-tested helper for this.
         preflight_data = unwrap_jsx_result(response, context="preflight_check")
 
-        # Build warnings from issues
-        warnings = []
-        for issue in preflight_data.get("issues", []):
-            if issue.get("severity") != "info":
-                warnings.append(issue.get("message", "Unknown issue"))
+        if isinstance(preflight_data, dict) and "__dm_request_error" in preflight_data:
+            return make_envelope(
+                ok=False,
+                error={
+                    "code": ErrorCode.V_INVALID_PARAM_VALUE.value,
+                    "message": preflight_data["__dm_request_error"],
+                    "suggestions": ["List valid artboards with illustrator_artboards(action='list')"],
+                },
+                diagnostics=diagnostics,
+            )
+
+        findings = preflight_data.get("findings", [])
+        preflight_data["issues"] = _legacy_issues(findings)
+        warnings = [f["message"] for f in findings if f.get("severity") != "info"]
 
         # This is a read-only diagnostic: ok reflects whether the check ran,
-        # not whether the document is issue-free — matching this tool's own
-        # documented contract ("Returns ok=true if all checks pass, with
-        # warnings for issues found"). Issues are surfaced via `warnings`
-        # (above) and in full via `result`.
-        #
-        # ok=False used to be computed from issue severity instead, which
-        # made make_envelope discard `result` entirely — its contract is
-        # `result if ok else None` — and no `error` was supplied to
-        # compensate, so a real finding produced {ok:false, error:null,
-        # result:null}. That path was never actually exercised in
-        # production: it was fed by the same unwrap bug fixed above, which
-        # made preflight_data always {}, so `issues` was always [] and
-        # is_ok was always True. Fixing the unwrap alone would have newly
-        # exposed this dropped-payload envelope on every real finding.
+        # not whether the document is issue-free. Findings are surfaced via
+        # `warnings` and in full via `result`. (ok=False would make
+        # make_envelope drop `result` — its contract is `result if ok else None`.)
         return make_envelope(
             ok=True,
             result=preflight_data,

@@ -50,14 +50,23 @@ def _preflight_envelope(preflight_data: dict) -> dict:
     return {"result": {"ok": True, "data": json.dumps(preflight_data)}}
 
 
+def _finding(tag: str, count: int, message: str, severity: str = "warning", names=()) -> dict:
+    """A v2 finding as preflight.jsx emits it."""
+    return {
+        "tag": tag, "scope": tag.split(".")[0], "severity": severity, "count": count,
+        "message": message, "truncated": False,
+        "affected_objects": [{"uuid": str(100 + i), "name": n, "type": "PathItem", "layer_path": "Layer 1"}
+                             for i, n in enumerate(names)],
+    }
+
+
 def _base_preflight_data(**overrides) -> dict:
     data = {
         "document": "Untitled-1",
-        "artboard_index": 0,
-        "checks": {
-            "bounds": {"on_artboard": 1, "off_artboard": 0, "items_checked": 1},
-        },
-        "issues": [],
+        "artboard_index": None,
+        "findings": [],
+        "checks_run": ["objects.off_artboard"],
+        "checks_skipped": [],
         "summary": {"total_items": 1, "issues_found": 0},
     }
     data.update(overrides)
@@ -81,17 +90,16 @@ class TestRealDataReachesTheEnvelope:
     @pytest.mark.asyncio
     async def test_off_artboard_issue_reaches_the_result(self):
         data = _base_preflight_data(
-            checks={"bounds": {"on_artboard": 1, "off_artboard": 1, "items_checked": 2}},
-            issues=[{
-                "type": "off_artboard", "count": 1,
-                "message": "1 items outside artboard bounds",
-                "samples": ["off_artboard_probe"],
-            }],
+            findings=[_finding("objects.off_artboard", 1, "1 objects lie entirely outside every artboard",
+                               names=["off_artboard_probe"])],
             summary={"total_items": 2, "issues_found": 1},
         )
         with _esc(_preflight_envelope(data)):
             raw = await illustrator_preflight_check(PreflightCheckInput())
         env = _envelope(raw)
+        assert env["result"]["findings"][0]["affected_objects"][0]["name"] == "off_artboard_probe"
+        # v1 view, derived from the findings for existing callers
+        assert env["result"]["issues"][0]["type"] == "off_artboard"
         assert env["result"]["issues"][0]["samples"] == ["off_artboard_probe"]
         assert env["result"]["summary"]["issues_found"] == 1
 
@@ -116,12 +124,13 @@ class TestRealDataReachesTheEnvelope:
         query.py's preflight ok= comment for the full account.
         """
         data = _base_preflight_data(
-            issues=[{"type": "zero_size", "count": 3, "message": "3 items have zero width or height"}],
+            findings=[_finding("objects.zero_size", 3, "3 objects have zero width or height")],
         )
         with _esc(_preflight_envelope(data)):
             raw = await illustrator_preflight_check(PreflightCheckInput())
         env = _envelope(raw)
         assert env["result"] != {}
+        assert env["result"]["findings"][0]["tag"] == "objects.zero_size"
         assert env["result"]["issues"][0]["type"] == "zero_size"
         assert env["error"] is None
 
@@ -135,7 +144,7 @@ class TestOkReflectsWhetherTheCheckRan:
     @pytest.mark.asyncio
     async def test_a_real_finding_still_reports_ok_true(self):
         data = _base_preflight_data(
-            issues=[{"type": "empty_text", "message": "2 empty text frames"}],
+            findings=[_finding("text.empty_text", 2, "2 empty text frames")],
         )
         with _esc(_preflight_envelope(data)):
             raw = await illustrator_preflight_check(PreflightCheckInput())
@@ -147,7 +156,7 @@ class TestOkReflectsWhetherTheCheckRan:
     async def test_info_severity_issue_produces_no_warning(self):
         """Locked layers are informational, not a finding to act on."""
         data = _base_preflight_data(
-            issues=[{"type": "locked", "message": "1 locked layers, 0 locked items", "severity": "info"}],
+            findings=[_finding("objects.locked", 1, "1 locked objects or layers", severity="info")],
         )
         with _esc(_preflight_envelope(data)):
             raw = await illustrator_preflight_check(PreflightCheckInput())
@@ -158,16 +167,17 @@ class TestOkReflectsWhetherTheCheckRan:
     @pytest.mark.asyncio
     async def test_mixed_info_and_real_issues_only_warns_on_real_ones(self):
         data = _base_preflight_data(
-            issues=[
-                {"type": "locked", "message": "locked stuff", "severity": "info"},
-                {"type": "off_artboard", "message": "1 items outside artboard bounds"},
+            findings=[
+                _finding("objects.locked", 1, "locked stuff", severity="info"),
+                _finding("objects.off_artboard", 1, "1 objects lie entirely outside every artboard"),
             ],
         )
         with _esc(_preflight_envelope(data)):
             raw = await illustrator_preflight_check(PreflightCheckInput())
         env = _envelope(raw)
         assert env["ok"] is True
-        assert env["warnings"] == ["1 items outside artboard bounds"]
+        assert env["warnings"] == ["1 objects lie entirely outside every artboard"]
+        assert env["result"]["issues"][0]["severity"] == "info"
 
 
 class TestScriptLevelFailure:
@@ -240,24 +250,49 @@ class TestScriptParameterInjection:
         assert json.dumps(malicious) in script
 
     @pytest.mark.asyncio
-    async def test_null_artboard_index_becomes_the_bare_js_null(self):
+    async def test_unset_artboard_index_is_left_out_of_the_payload(self):
         with _esc(_preflight_envelope(_base_preflight_data())) as esc:
             await illustrator_preflight_check(PreflightCheckInput(artboard_index=None))
         script = esc.call_args.kwargs["script"]
-        assert "var abIdx = null;" in script
+        assert "artboard_index" not in script
+        assert "pfRun(doc, P)" in script
+        assert esc.call_args.kwargs["includes"] == ["doc_model", "preflight"]
 
     @pytest.mark.asyncio
     async def test_explicit_artboard_index_is_embedded_as_a_number(self):
         with _esc(_preflight_envelope(_base_preflight_data())) as esc:
             await illustrator_preflight_check(PreflightCheckInput(artboard_index=2))
         script = esc.call_args.kwargs["script"]
-        assert "var abIdx = 2;" in script
+        assert '"artboard_index": 2' in script
 
     @pytest.mark.asyncio
-    async def test_check_flags_gate_their_script_sections(self):
+    async def test_legacy_flags_and_scope_reach_the_payload(self):
         with _esc(_preflight_envelope(_base_preflight_data())) as esc:
             await illustrator_preflight_check(PreflightCheckInput(
                 check_zero_size=False, check_empty_text=False, check_locked=False,
+                scope="artboard", scopes=["text", "links"],
             ))
         script = esc.call_args.kwargs["script"]
-        assert "if (false) {" in script
+        assert '"check_zero_size": false' in script
+        assert '"check_empty_text": false' in script
+        assert '"check_locked": false' in script
+        assert '"item_scope": "artboard"' in script
+        assert '"scopes": ["text", "links"]' in script
+
+    def test_unknown_scope_is_rejected(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            PreflightCheckInput(scopes=["fonts"])
+
+
+class TestRequestError:
+    @pytest.mark.asyncio
+    async def test_dm_request_error_becomes_v011(self):
+        envelope = {"result": {"ok": True, "data": json.dumps(
+            {"__dm_request_error": "artboard_index 7 is out of range (document has 1 artboards, 0-based)"})}}
+        with _esc(envelope):
+            raw = await illustrator_preflight_check(PreflightCheckInput(artboard_index=7))
+        env = _envelope(raw)
+        assert env["ok"] is False
+        assert env["error"]["code"] == "V011"
+        assert "out of range" in env["error"]["message"]

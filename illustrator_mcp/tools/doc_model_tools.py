@@ -62,14 +62,18 @@ async def run_dm(
     tool_name: str,
     needs_doc: bool = True,
     log_params: Optional[dict] = None,
+    includes: Optional[List[str]] = None,
 ) -> str:
-    """Execute one doc_model call and map dmFail() request errors to V011."""
+    """Execute one doc_model call and map dmFail() request errors to V011.
+
+    ``includes`` replaces the default ["doc_model"] for libraries built on it.
+    """
     raw = await execute_jsx_tool(
         script=dm_script(call, payload, needs_doc=needs_doc),
         command_type=command_type,
         tool_name=tool_name,
         params=log_params if log_params is not None else payload,
-        includes=_INCLUDES,
+        includes=includes or _INCLUDES,
     )
     try:
         env = json.loads(raw)
