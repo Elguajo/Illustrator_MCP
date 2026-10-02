@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { readBridgeSession, describeSessionError } from '../session';
+import { toExtendScriptLiteral } from '../extendscript';
 
 // ExtendScript types
 interface CSInterface {
@@ -88,7 +89,7 @@ export function useMCP() {
 
     // Safe dispatcher
     const mcpDispatch = useCallback((command: string, payload: any) => {
-        const payloadStr = JSON.stringify(payload)
+        const payloadStr = toExtendScriptLiteral(payload)
             .replace(/\\/g, '\\\\')
             .replace(/'/g, "\\'")
             .replace(/"/g, '\\"');
@@ -183,7 +184,7 @@ export function useMCP() {
                         const startTime = performance.now();
 
                         // Execute via host script
-                        const script = `mcp_handle_request(${JSON.stringify(data)})`;
+                        const script = `mcp_handle_request(${toExtendScriptLiteral(data)})`;
 
                         if (csInterface.current) {
                             // For streaming requests, we need special handling
