@@ -68,6 +68,11 @@ class EffectsInput(ToolInputBase):
         ..., min_length=1, max_length=500,
         description="PageItem uuids from illustrator_inspect",
     )
+    document: Optional[str] = Field(
+        None,
+        description="Name of the document the uuids came from (illustrator_inspect result.document.name); "
+                    "the call fails instead of acting if another document is active",
+    )
     effect: Optional[Literal["drop_shadow", "gaussian_blur"]] = Field(
         None, description="Effect to apply (required for apply)",
     )
@@ -102,7 +107,7 @@ class EffectsInput(ToolInputBase):
         if self.action == "remove":
             extra = sorted(given & set(_EFFECT_FIELDS))
             if extra:
-                raise ValueError(f"remove takes only uuids and allow_stroke_realign, not {', '.join(extra)}")
+                raise ValueError(f"remove takes only uuids, document and allow_stroke_realign, not {', '.join(extra)}")
         if self.effect == "gaussian_blur":
             extra = sorted(given & set(_SHADOW_FIELDS))
             if extra:
@@ -120,6 +125,8 @@ def effects_payload(params: EffectsInput) -> dict:
         "uuids": params.uuids,
         "allow_stroke_realign": params.allow_stroke_realign,
     }
+    if params.document:
+        payload["document"] = params.document
     if params.action == "apply":
         payload["effect"] = params.effect
         payload["replace"] = params.replace
@@ -163,7 +170,10 @@ async def illustrator_effects(params: EffectsInput) -> str:
 
     KEY CONCEPTS:
       Effects are live: the path geometry is unchanged and the effect sits on
-      the object's appearance. apply stacks on top of existing effects unless
+      the object's appearance. uuids are valid for the active document only
+      (numbers collide across open documents): pass document=result.document.name
+      from illustrator_inspect and the call fails rather than touching another
+      document's objects. apply stacks on top of existing effects unless
       replace=true. Compound paths get the effect on the compound itself,
       groups on the group (children untouched), text on the text object.
       Reading effects back is not possible from script: no DOM property
@@ -188,7 +198,7 @@ async def illustrator_effects(params: EffectsInput) -> str:
       - offset_y > 0 moves the shadow down, offset_x > 0 moves it right
 
     EXAMPLES:
-      illustrator_effects(action="apply", effect="drop_shadow", uuids=["412"])
+      illustrator_effects(action="apply", effect="drop_shadow", uuids=["412"], document="poster.ai")
       illustrator_effects(action="apply", effect="drop_shadow", uuids=["412"], offset_x=0, offset_y=4, blur=8, opacity=30, color={"hex": "#1a1a2e"})
       illustrator_effects(action="apply", effect="gaussian_blur", uuids=["415"], radius=3, replace=True)
       illustrator_effects(action="remove", uuids=["412", "415"])
