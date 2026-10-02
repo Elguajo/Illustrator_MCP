@@ -28,10 +28,10 @@ words; Adobe's descriptions are not reproduced.
 ## Design patterns worth adopting
 
 1. **Native object identity.** Every tool addresses objects by Illustrator's own UUID. Our
-   ScriptingSupport exposes `PageItem.uuid` and `Document.getPageItemFromUuid()` (strings present in
-   `ScriptingSupport.aip`; **not yet verified live**). We instead write `@mcp:id=` into `item.note`
-   (23 files), which mutates the document, is opt-in, and can duplicate on copy-paste. If the native
-   UUID holds up, it should become the primary handle, with `@mcp:id` kept as a fallback alias.
+   ScriptingSupport exposes `PageItem.uuid` and `Document.getPageItemFromUuid()` (verified live,
+   see below). We instead write `@mcp:id=` into `item.note` (23 files), which mutates the document,
+   is opt-in, and can duplicate on copy-paste. The native uuid is now the primary in-session handle;
+   it is not a persistent identity (see "Verified live"), so `@mcp:id` stays the cross-session alias.
 2. **Progressive inspection instead of one big dump.** A structure browser (layer tree, `maxDepth`,
    breadth-first, summaries at the depth limit), an artboard view (everything overlapping an
    artboard, across layers), then per-object detail tools split by concern: appearance (fill/stroke
@@ -88,8 +88,27 @@ already asks questions), and the prompt relay to Adobe's assistant.
 - Layers and artboards have no uuid.
 - `getPageItemFromUuid()` throws on an unknown uuid, and returns a different `GroupItem`-typed
   object for a `CompoundPathItem` (handled in `resolvePageItemByUuid`).
-- Per published docs, uuids of new objects are reissued when the file is closed and reopened; not
-  re-verified here, so `@mcp:id` stays the cross-session identity.
+- **uuid lifetime across save, close and reopen** (probe: path, compound path with two child
+  paths, group with a child, text frame, each with an `@mcp:id` note; saved to a temp `.ai`):
+  - A uuid is a per-document counter, not an id stored in the file. Fresh items got 473..479;
+    `saveAs` and a later read in the same session left them unchanged.
+  - Closing the saved document did not touch the file (mtime unchanged). The published claim that
+    "a new uuid is written on close" was not observed: renumbering happens when the file is loaded.
+  - First reopen: every item was renumbered in document order (473..479 -> 433..439). Second and
+    third reopen, and a reopen while another document was open: identical 433..439. The numbering
+    is deterministic for an unchanged file.
+  - It is positional, not stable identity: after deleting the item numbered 433, adding one item
+    and saving, the next reopen shifted every surviving item down by one (text 439 -> 438, group
+    437 -> 436, ...). The same uuid can therefore name a different object after an edit plus
+    reopen.
+  - uuids collide across open documents: two new documents both numbered their first item 473.
+  - `doc.getPageItemFromUuid()` ignores `doc` and resolves in `app.activeDocument`: with documents
+    A and B open, `a.getPageItemFromUuid("473")` returned B's item while B was active. Our callers
+    pass `app.activeDocument`, so they are correct only while the active document does not change
+    between inspect and act.
+  - `@mcp:id` notes on every item type (compound path and group included) survived every save,
+    close and reopen, including the edit-then-reopen case. `@mcp:id` is the identity to use across
+    a reopen or a document switch.
 - A document created with `app.documents.add(..., 600, 400)` has artboard rect `[0, 400, 600, 0]`:
   the artboard does not start at y = 0, so "visual (x, y) -> [x, -y]" is not universally valid.
   The typed tools sidestep this by reporting artboard and object bounds in one canvas space.
