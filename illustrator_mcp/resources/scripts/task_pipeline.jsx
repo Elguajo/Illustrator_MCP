@@ -478,8 +478,15 @@ function executeTask(payload, collectFn, computeFn, applyFn) {
             }
 
             // Phase 4 guard: clear selection after resolution to prevent
-            // accidental coupling in downstream ops
-            try { if (typeof app !== "undefined") app.selection = null; } catch (selErr) { /* non-critical */ }
+            // accidental coupling in downstream ops. Not when the task targets the
+            // selection itself: the ops stage resolves {type: "selection"} again from
+            // doc.selection, so clearing it made every selection-targeted op see 0 items
+            // ("Resolved 0 targets", found live on 30.8.1) and destroyed the user's
+            // selection. Not on a dry run either: it must leave the document untouched.
+            var targetsSelection = !!(targetObj && targetObj.type === "selection");
+            if (!targetsSelection && !options.dryRun) {
+                try { if (typeof app !== "undefined") app.selection = null; } catch (selErr) { /* non-critical */ }
+            }
 
             // Apply global exclusion
             if (globalExclude) {
