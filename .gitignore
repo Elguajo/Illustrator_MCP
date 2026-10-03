@@ -43,6 +43,7 @@ htmlcov/
 .git/
 .pytest_cache/
 .venv/
+.serena/
 
 # Windows-style path artifact from tests run with C:/... paths
 C:/
