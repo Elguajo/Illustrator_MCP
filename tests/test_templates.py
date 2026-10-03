@@ -146,6 +146,15 @@ class TestTraceTemplate:
         assert "catch(pe)" in result
         assert "warnings.push" in result
 
+    def test_unknown_preset_is_reported_not_swallowed(self):
+        """loadFromPreset() returns false for an unknown name instead of throwing (live, 30.8.1),
+        so the warning must also fire on a false return."""
+        result = templates.TRACE_PLACED_IMAGE.substitute(
+            marker="@mcp:trace_target=x", preset='"No Such Preset"', expand="true"
+        )
+        assert "loadFromPreset(presetName) !== false" in result
+        assert "if (!presetLoaded)" in result and "Preset not found" in result
+
     def test_trace_type_guard(self):
         """JSX checks typename before tracing."""
         result = templates.TRACE_PLACED_IMAGE.substitute(

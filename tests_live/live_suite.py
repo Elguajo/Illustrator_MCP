@@ -272,6 +272,75 @@ async def main():
         return ok(env) or env
     await step("illustrator_execute_task", "smooth curve path", et_curve)
 
+    # ---------------- illustrator_execute_task: layout, groups, layers, clip ----------------
+    GRP = {"type": "query", "itemType": "PathItem", "pattern": "grp_*"}
+    ORDER = ("var d = app.activeDocument, o = []; for (var i = 0; i < d.pathItems.length; i++) { var p = d.pathItems[i];"
+             " if (/^grp_/.test(p.name)) o.push([p.zOrderPosition, p.name, p.parent.typename]); }"
+             " o.sort(function (a, b) { return a[0] - b[0]; }); var n = []; for (var j = 0; j < o.length; j++) n.push(o[j][1] + '@' + o[j][2]); return n;")
+    GEOM = ("var d = app.activeDocument, o = []; for (var i = 1; i <= 3; i++) { var r = d.pageItems.getByName('grp_' + i);"
+            " o.push([Math.round(r.left), Math.round(r.top), Math.round(r.width)]); } return o;")
+
+    async def lay_setup():
+        probe("var d = app.activeDocument; for (var i = 0; i < 3; i++) { var r = d.pathItems.rectangle(-200 - i * 50, 30 + i * 70 + i * i * 15, 30 + i * 10, 30); r.name = 'grp_' + (i + 1); r.stroked = false; } return 1;")
+        return probe("return app.activeDocument.pageItems.getByName('grp_3').name;") == "grp_3"
+    await step("illustrator_execute_task", "setup: three named rects", lay_setup)
+
+    async def lay_distribute():
+        env, _ = await T("illustrator_execute_task", payload={"task": "distribute_horizontal", "targets": GRP, "params": {"mode": "gap"}}, return_preview=False)
+        g = probe(GEOM)
+        gap1 = g[1][0] - (g[0][0] + g[0][2]); gap2 = g[2][0] - (g[1][0] + g[1][2])
+        return (ok(env) and gap1 == gap2) or f"gaps {gap1} vs {gap2} geometry={g}"
+    await step("illustrator_execute_task", "distribute_horizontal: equal gaps (read back)", lay_distribute)
+
+    async def lay_align_h():
+        env, _ = await T("illustrator_execute_task", payload={"task": "align_horizontal", "targets": GRP, "params": {"mode": "left"}}, return_preview=False)
+        g = probe(GEOM)
+        return (ok(env) and g[0][0] == g[1][0] == g[2][0]) or f"lefts {[x[0] for x in g]}"
+    await step("illustrator_execute_task", "align_horizontal left: same left edge", lay_align_h)
+
+    async def lay_align_v():
+        env, _ = await T("illustrator_execute_task", payload={"task": "align_vertical", "targets": GRP, "params": {"mode": "top"}}, return_preview=False)
+        g = probe(GEOM)
+        return (ok(env) and g[0][1] == g[1][1] == g[2][1]) or f"tops {[x[1] for x in g]}"
+    await step("illustrator_execute_task", "align_vertical top: same top edge", lay_align_v)
+
+    async def lay_group_ungroup():
+        before = probe(ORDER)
+        env, _ = await T("illustrator_execute_task", payload={"task": "group_create", "targets": GRP, "params": {"name": "live_group"}}, return_preview=False)
+        grouped = probe("var g = app.activeDocument.groupItems, n = 0; for (var i = 0; i < g.length; i++) if (g[i].name == 'live_group') n = g[i].pageItems.length; return n;")
+        mid = probe(ORDER)
+        env2, _ = await T("illustrator_execute_task", payload={"task": "group_ungroup", "targets": {"type": "query", "itemType": "GroupItem", "pattern": "live_group"}}, return_preview=False)
+        left = probe("var g = app.activeDocument.groupItems, n = 0; for (var i = 0; i < g.length; i++) if (g[i].name == 'live_group') n++; return n;")
+        after = probe(ORDER)
+        return (ok(env) and grouped == 3 and ok(env2) and left == 0 and after == before and all(x.endswith("@Layer") for x in after)) or f"group={grouped} left={left} order before={before} mid={mid} after={after} {str(env2)[:200]}"
+    await step("illustrator_execute_task", "group_create then group_ungroup (z-order kept)", lay_group_ungroup)
+
+    async def lay_layers():
+        info = "var o = []; var L = app.activeDocument.layers; for (var i = 0; i < L.length; i++) o.push([L[i].name, L[i].locked, L[i].visible]); return o;"
+        for task, params in [("layer_create", {"name": "LiveLayer"}), ("layer_lock", {"name": "LiveLayer", "locked": True}), ("layer_visible", {"name": "LiveLayer", "visible": False})]:
+            e, _ = await T("illustrator_execute_task", payload={"task": task, "params": params}, return_preview=False)
+            if not ok(e): return f"{task}: {str(e)[:300]}"
+        st = [x for x in probe(info) if x[0] == "LiveLayer"]
+        if st != [["LiveLayer", True, False]]: return f"state {st}"
+        e, _ = await T("illustrator_execute_task", payload={"task": "layer_delete", "params": {"name": "LiveLayer"}}, return_preview=False)
+        still = [x for x in probe(info) if x[0] == "LiveLayer"]
+        if ok(e) or not still: return f"delete of a hidden layer should be refused: ok={ok(e)} layers={still}"
+        for task, params in [("layer_visible", {"name": "LiveLayer", "visible": True}), ("layer_lock", {"name": "LiveLayer", "locked": False}), ("layer_delete", {"name": "LiveLayer"})]:
+            e, _ = await T("illustrator_execute_task", payload={"task": task, "params": params}, return_preview=False)
+            if not ok(e): return f"{task}: {str(e)[:300]}"
+        gone = [x for x in probe(info) if x[0] == "LiveLayer"] == []
+        return gone or "layer still exists"
+    await step("illustrator_execute_task", "layer create/lock/hide, hidden delete refused, then delete", lay_layers)
+
+    async def lay_clip():
+        for idn, x, w in [("CM", 100, 80), ("CC", 60, 200)]:
+            e, _ = await T("illustrator_execute_task", payload={"task": "element_create", "params": {"id": idn, "type": "rect", "x": x, "y": 340, "width": w, "height": 40, "fill": {"r": 9, "g": 9, "b": 9}}}, return_preview=False)
+            if not ok(e): return f"element_create {idn}: {str(e)[:200]}"
+        env, _ = await T("illustrator_execute_task", payload={"task": "clip_create", "params": {"mask": "CM", "contents": ["CC"]}}, return_preview=False)
+        clipped = probe("var g = app.activeDocument.groupItems, n = 0; for (var i = 0; i < g.length; i++) if (g[i].clipped) n++; return n;")
+        return (ok(env) and clipped >= 1) or f"clipped groups={clipped} {str(env)[:300]}"
+    await step("illustrator_execute_task", "clip_create makes a clipping group", lay_clip)
+
     # ---------------- illustrator_text ----------------
     TXT = lambda **k: T("illustrator_text", uuids=[IDS["txt_c"]], document=IDS["document"], **k)
 
@@ -530,9 +599,23 @@ async def main():
             if p.exists(): p.unlink()
             t0 = time.time()
             env, _ = await T("illustrator_export_document", file_path=str(p), format=fmt, artboard_only=True, artboard_index=0, scale=1.0)
-            print(f"      ({fmt}: {time.time() - t0:.1f}s, {p.stat().st_size if p.exists() else 0} bytes)", flush=True)
-            return (ok(env) and p.exists() and p.stat().st_size > 500) or f"exists={p.exists()} {str(env)[:300]}"
+            size = p.stat().st_size if p.exists() else 0
+            print(f"      ({fmt}: {time.time() - t0:.1f}s, {size} bytes)", flush=True)
+            if fmt == "svg" and size > 300_000:
+                return f"svg of a document with text is {size} bytes: all glyphs of every font were embedded (expected GLYPHSUSED)"
+            return (ok(env) and p.exists() and size > 500) or f"exists={p.exists()} {str(env)[:300]}"
         await step("illustrator_export_document", f"export {fmt} (file exists, >500 B)", exp)
+
+    async def exp_renames():
+        for fmt in ("svg", "pdf"):
+            env, _ = await T("illustrator_export_document", file_path=str(WORK / f"rename.{fmt}"), format=fmt, artboard_only=True, artboard_index=0)
+            doc = (res_of(env) or {}).get("document") if isinstance(res_of(env), dict) else None
+            actual = probe("return app.activeDocument.name;")
+            warned = any("active document is now the exported" in w for w in env.get("warnings", []))
+            if not (ok(env) and doc and doc["renamed"] and doc["after"] == f"rename.{fmt}" == actual and warned):
+                return f"{fmt}: report={doc} actual={actual} warned={warned}"
+        return True
+    await step("illustrator_export_document", "svg/pdf report that the document was re-pointed (read back)", exp_renames)
 
     async def exp_img():
         env, imgs = await T("illustrator_export_document", file_path=str(WORK / "ret.png"), format="png", return_image=True, artboard_only=True, artboard_index=0)
@@ -566,6 +649,65 @@ async def main():
         probe("app.activeDocument.pageItems.getByName('far_away').remove(); return 1;")
         return (ok(env) and "off_artboard" in s) or f"{s[:300]}"
     await step("illustrator_preflight_check", "off-artboard object is reported", pf_offboard)
+
+    # ---------------- illustrator_place_file: trace and editable PDF ----------------
+    CLEAR = "var d = app.activeDocument; while (d.pageItems.length) d.pageItems[0].remove(); return 1;"
+    COUNTS = "var d = app.activeDocument; return {placed: d.placedItems.length, raster: d.rasterItems.length, plugin: d.pluginItems.length, paths: d.pathItems.length, groups: d.groupItems.length};"
+
+    async def tr_linked():
+        probe(CLEAR)
+        env, _ = await T("illustrator_place_file", file_path=str(png), x=30, y=30, linked=True, trace=True)
+        c = probe(COUNTS)
+        return (ok(env) and c["paths"] > 20 and c["groups"] >= 1 and c["placed"] == 0) or f"{c} {str(env)[:300]}"
+    await step("illustrator_place_file", "trace a linked PNG -> expanded paths", tr_linked)
+
+    async def tr_embedded():
+        probe(CLEAR)
+        env, _ = await T("illustrator_place_file", file_path=str(png), x=30, y=30, linked=False, trace=True)
+        c = probe(COUNTS)
+        return (ok(env) and c["paths"] > 20 and c["raster"] == 0) or f"embedded trace: {c} {str(env)[:300]}"
+    await step("illustrator_place_file", "trace an embedded PNG (marker survives embed)", tr_embedded)
+
+    async def tr_preset():
+        probe(CLEAR)
+        env, _ = await T("illustrator_place_file", file_path=str(png), x=30, y=30, linked=True, trace=True, trace_preset="6 Colors")
+        c = probe(COUNTS)
+        return (ok(env) and 1 <= c["paths"] <= 12) or f"{c} {str(env)[:300]}"
+    await step("illustrator_place_file", "trace preset '6 Colors' -> at most 12 paths", tr_preset)
+
+    async def tr_unknown_preset():
+        probe(CLEAR)
+        env, _ = await T("illustrator_place_file", file_path=str(png), x=30, y=30, linked=True, trace=True, trace_preset="No Such Preset")
+        w = (res_of(env) or {}).get("warnings") if isinstance(res_of(env), dict) else None
+        return (ok(env) and bool(w) and "Preset not found" in json.dumps(w)) or f"warnings={w} {str(env)[:200]}"
+    await step("illustrator_place_file", "unknown trace preset is reported", tr_unknown_preset)
+
+    async def tr_live():
+        probe(CLEAR)
+        env, _ = await T("illustrator_place_file", file_path=str(png), x=30, y=30, linked=True, trace=True, expand=False)
+        c = probe(COUNTS)
+        return (ok(env) and c["plugin"] == 1 and c["paths"] == 0) or f"{c} {str(env)[:300]}"
+    await step("illustrator_place_file", "expand=False keeps a live trace (plugin item)", tr_live)
+
+    async def pdf_editable():
+        probe(CLEAR)
+        import shutil
+        src = WORK / "editable_src.pdf"      # a copy: after the export step the active document IS out.pdf
+        shutil.copy(WORK / "out.pdf", src)
+        env, _ = await T("illustrator_place_file", file_path=str(src), x=10, y=10, embed_editable=True)
+        c = probe(COUNTS)
+        names = probe("var o = []; for (var i = 0; i < app.documents.length; i++) o.push(app.documents[i].name); return o;")
+        # the pasted PDF carries the earlier test content (including images), so count vectors, not placed items
+        return (ok(env) and c["paths"] > 0 and len(names) == 1) or f"{c} docs={names} {str(env)[:300]}"
+    await step("illustrator_place_file", "embed_editable opens a PDF as vectors (document intact)", pdf_editable)
+
+    async def trace_vector_refused():
+        try:
+            env, _ = await T("illustrator_place_file", file_path=str(WORK / "out.pdf"), trace=True)
+        except Exception as e:
+            return "raster" in str(e) or str(e)[:200]
+        return "tracing a PDF should be refused"
+    await step("illustrator_place_file", "trace of a non-raster file is rejected by validation", trace_vector_refused)
 
     # ---------------- illustrator_ground_object ----------------
     async def ground():

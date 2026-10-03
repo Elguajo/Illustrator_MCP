@@ -57,6 +57,20 @@ async def _place_item_impl(
         )
     else:
         embed_line = "" if linked else "placed.embed();"
+        if trace_marker and not linked:
+            # embed() replaces the PlacedItem with a new RasterItem that has an empty note, and
+            # the old reference still reads and writes its own note without error (live, 30.8.1),
+            # so a marker set on `placed` never reached the item the trace step looks for.
+            # Mark the raster that now sits where the placed item was.
+            embed_line = "var __gb = placed.geometricBounds; placed.embed();"
+            marker_line = (
+                "var __marked = false;"
+                "for (var __i = 0; __i < doc.rasterItems.length && !__marked; __i++) {"
+                "var __r = doc.rasterItems[__i]; var __b = __r.geometricBounds;"
+                "if (!__r.note && Math.abs(__b[0] - __gb[0]) < 0.5 && Math.abs(__b[1] - __gb[1]) < 0.5"
+                " && Math.abs(__b[2] - __gb[2]) < 0.5 && Math.abs(__b[3] - __gb[3]) < 0.5) {"
+                f'__r.note = "{trace_marker}"; __marked = true; }}}}'
+            )
         script = templates.PLACE_ITEM.substitute(
             path=path,
             x=x,
