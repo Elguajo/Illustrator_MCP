@@ -176,6 +176,20 @@ class TestReplace:
         text = jsx_value(LIBS, HELLO, 'doc.getPageItemFromUuid("1").contents')
         assert text == "Hello big world, hello"
 
+    def test_renamed_or_closed_document_is_not_offered_as_a_switch_target(self):
+        # The named document is no longer open: do not suggest switching to it.
+        call = 'dtReplaceText(doc, {document: "old.ai", uuids: ["1"], find: "big", replace: "x"})'
+        res = run_jsx(LIBS, HELLO, _after("(function(){ app.documents = [doc]; return " + call + "; })()"))
+        assert res["ok"] is False and res["user_error"] is True
+        assert "No open document is named 'old.ai'" in res["message"] and "active document is 'test.ai'" in res["message"]
+        assert "illustrator_document(action='switch'" not in res["message"]
+
+    def test_open_but_inactive_document_is_offered_as_a_switch_target(self):
+        call = 'dtReplaceText(doc, {document: "other.ai", uuids: ["1"], find: "big", replace: "x"})'
+        expr = "(function(){ app.documents = [doc, {name: 'other.ai'}]; return " + call + "; })()"
+        res = run_jsx(LIBS, HELLO, _after(expr))
+        assert res["ok"] is False and "illustrator_document(action='switch', name='other.ai')" in res["message"]
+
     def test_results_name_the_document(self):
         res = jsx_value(LIBS, HELLO, 'dtReplaceText(doc, {find: "big", replace: "x"})')
         assert res["document"] == {"name": "test.ai", "path": None}

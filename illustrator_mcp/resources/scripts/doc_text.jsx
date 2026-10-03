@@ -37,6 +37,18 @@ function dtCheckDocument(doc, P) {
             "that returned them (uuids are numbered per document)");
     }
     if (P.document && P.document !== name) {
+        var isOpen = true;   // unknown unless app.documents can be read
+        try {
+            isOpen = false;
+            for (var i = 0; i < app.documents.length; i++) {
+                if (String(app.documents[i].name) === P.document) { isOpen = true; break; }
+            }
+        } catch (e) { isOpen = true; }
+        if (!isOpen) {
+            dmFail("No open document is named '" + P.document + "' (renamed or closed since the inspect?); the " +
+                "active document is '" + name + "'. uuids are numbered per document, so nothing was changed. " +
+                "Run illustrator_inspect on the intended document and pass its result.document.name.");
+        }
         dmFail("Request names document '" + P.document + "' but the active document is '" + name +
             "'. uuids are numbered per document, so nothing was changed. Switch with " +
             "illustrator_document(action='switch', name='" + P.document + "') or inspect this document again.");
