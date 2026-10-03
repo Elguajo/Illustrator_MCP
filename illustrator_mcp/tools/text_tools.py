@@ -10,7 +10,7 @@ text that exists.
 
 from typing import List, Literal, Optional
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from illustrator_mcp.shared import mcp
 from illustrator_mcp.tools.base import ToolInputBase, TOOL_ANNOTATIONS
@@ -52,6 +52,8 @@ class TextColor(ToolInputBase):
 
 class ReplacePair(ToolInputBase):
     """One find/replace request inside a batch; applied in list order."""
+    # ToolInputBase strips whitespace; here a leading or trailing space is text.
+    model_config = ConfigDict(str_strip_whitespace=False)
     find: str = Field(..., min_length=1, description="literal text to find")
     replace: Optional[str] = Field(None, description="replacement text ('' deletes the match)")
     replace_runs: Optional[List[str]] = Field(
@@ -75,6 +77,9 @@ class ReplacePair(ToolInputBase):
 
 class TextInput(ToolInputBase):
     """Input for text editing."""
+    # ToolInputBase strips whitespace; find/replace/replace_runs must keep it
+    # ("big " -> "enormous " is not "big " -> "enormous").
+    model_config = ConfigDict(str_strip_whitespace=False)
     action: Literal["replace", "replace_font", "style", "outline"] = Field(
         ..., description="Text operation",
     )

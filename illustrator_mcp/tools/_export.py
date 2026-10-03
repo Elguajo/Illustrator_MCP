@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 _EXPORT_NAME = "illustrator_export_document"
 
+# Seconds of script time per format; None = the bridge default (30 s).
+_EXPORT_TIMEOUTS = {ExportFormat.PDF: 60.0, ExportFormat.SVG: 120.0}
+
 
 @mcp.tool(name=_EXPORT_NAME, annotations=TOOL_ANNOTATIONS[_EXPORT_NAME])
 async def illustrator_export_document(params: ExportDocumentInput) -> Union[str, list]:
@@ -44,7 +47,8 @@ async def illustrator_export_document(params: ExportDocumentInput) -> Union[str,
 
     NOTES:
       - artboard_only=True clips export to artboard; a pre-check warns if nothing is on it
-      - PDF export uses saveAs (longer timeout)
+      - PDF export uses saveAs; PDF (60 s) and SVG (120 s) get a longer timeout (SVG embeds live
+        text fonts, which makes it slow and large; outline text first if you need a small, font-independent file)
       - return_image returns base64 image bytes as ImageContent for visual verification
       - Overwrites existing file at file_path (destructive to filesystem)
     """
@@ -167,13 +171,15 @@ async def illustrator_export_document(params: ExportDocumentInput) -> Union[str,
     else:  # PDF uses saveAs
         script = templates.EXPORT_PDF.substitute(path=path)
 
-    # Execute export (PDF gets longer timeout due to complexity)
+    # PDF and SVG get a longer timeout. An SVG with live text embeds its fonts: 3-15 s for
+    # one short text frame on 30.8.1, and 40-60+ s for a 10-frame test document, so the
+    # 30 s default reported R005 although Illustrator went on to write the file.
     response = await execute_script_with_context(
         script=script,
         command_type="export_document",
         tool_name="illustrator_export_document",
         params={"file_path": params.file_path, "format": params.format.value, "scale": params.scale},
-        timeout=60.0 if params.format == ExportFormat.PDF else None
+        timeout=_EXPORT_TIMEOUTS.get(params.format)
     )
 
     envelope = format_envelope(

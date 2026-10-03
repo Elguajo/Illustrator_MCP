@@ -10,13 +10,20 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from illustrator_mcp.shared import mcp
 from illustrator_mcp.proxy_client import execute_script_with_context, format_envelope
 from illustrator_mcp.tools.base import ToolInputBase
 
 logger = logging.getLogger(__name__)
+
+
+class SvgFill(BaseModel):
+    """RGB fill, 0-255 per channel."""
+    r: int = Field(..., ge=0, le=255)
+    g: int = Field(..., ge=0, le=255)
+    b: int = Field(..., ge=0, le=255)
 
 
 class PathImportSvgInput(ToolInputBase):
@@ -37,6 +44,10 @@ class PathImportSvgInput(ToolInputBase):
     name: Optional[str] = Field(
         default=None,
         description="Optional name for the imported path item."
+    )
+    fill: Optional[SvgFill] = Field(
+        default=None,
+        description="Optional RGB fill, e.g. {r: 255, g: 0, b: 0}. Default: Illustrator's current fill."
     )
 
 
@@ -142,6 +153,8 @@ async def _path_import_svg_impl(params: PathImportSvgInput) -> str:
 
     if params.name:
         spec["name"] = params.name
+    if params.fill:
+        spec["appearance"] = {"fill": {"r": params.fill.r, "g": params.fill.g, "b": params.fill.b}}
 
     diagnostics["segments"] = segment_count
     diagnostics["is_multi"] = is_multi

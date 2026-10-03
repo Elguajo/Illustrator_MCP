@@ -397,6 +397,7 @@ function _createPath(item, points, abLeft, abTop) {
  *   spec.appearance: { fill?: {r,g,b}, stroke?: {r,g,b,width?}, opacity? }
  *   spec.target:     { layer?: string }
  *   spec.meta:       { tag?, source? }
+ *   spec.name:       string — name of the resulting item
  *
  * @param {Object} spec - Path specification
  * @returns {Object} { ok: true, uuid: string, typename: string, bounds: Array }
@@ -529,6 +530,11 @@ function drawPathPoints(spec) {
         // Stamp UUID and register — [H3] last steps before success
         setMcpId(resultItem, uuid);
         heapRegister(uuid, resultItem);
+
+        // Apply name (spec.name was documented but never applied)
+        if (spec.name) {
+            resultItem.name = String(spec.name);
+        }
 
         // Apply meta tag
         if (spec.meta && spec.meta.tag) {
