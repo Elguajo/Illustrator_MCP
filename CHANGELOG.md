@@ -172,6 +172,15 @@ History before 3.1.0 was not tracked here; see `git log` for it.
 
 ### Fixed
 
+- **Tool failures were reported to MCP clients as successes.** Every tool
+  returned its `{"ok": false, ...}` envelope in a result with `isError: false`
+  (measured: `illustrator_inspect` with Illustrator disconnected). A result
+  whose envelope has `ok: false` is now sent with `isError: true`, as the MCP
+  spec asks for tool execution errors; content and preview images are
+  unchanged. Tools no longer advertise FastMCP's automatic `outputSchema` for a
+  `str` return, which sent the same JSON a second time as
+  `structuredContent: {"result": "<string>"}`. See
+  `docs/MCP_LANDSCAPE_STUDY.md`, pattern 5.
 - **Found by a live run of every tool against Illustrator 30.8.1** (`tests_live/`):
   - `illustrator_text` stripped leading and trailing whitespace from `find`,
     `replace`, `replace_runs` and batch pairs (`ToolInputBase` strips strings), so

@@ -5,11 +5,13 @@ Owns the FastMCP singleton and server lifespan wiring.
 This is the only module that constructs the MCP application instance.
 """
 
+import json
 import logging
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Dict, Any
+from typing import Any, AsyncIterator, Dict, Sequence
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import CallToolResult, ContentBlock, TextContent
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +80,54 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
         logger.info("Server shutdown complete")
 
 
+def is_failure_envelope(text: str) -> bool:
+    """True when ``text`` is a canonical tool envelope with ``ok: false``."""
+    if not text.lstrip().startswith("{"):
+        return False
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return False
+    return isinstance(data, dict) and data.get("ok") is False
+
+
+def mark_tool_error(content: Sequence[ContentBlock]) -> Sequence[ContentBlock] | CallToolResult:
+    """Wrap a failed tool result so the client sees ``isError: true``.
+
+    Every tool reports failure through the ``{ok, error, ...}`` envelope
+    (errors.make_envelope / proxy_client.format_envelope), possibly followed
+    by preview images. The first text block decides.
+    """
+    for block in content:
+        if isinstance(block, TextContent):
+            if is_failure_envelope(block.text):
+                return CallToolResult(content=list(content), isError=True)
+            break
+    return content
+
+
+class IllustratorFastMCP(FastMCP):
+    """FastMCP with MCP-conformant tool error signalling.
+
+    - Tools return the envelope as text only. FastMCP's automatic output schema
+      for a ``str`` return wrapped the same JSON in ``{"result": "..."}`` as
+      ``structuredContent``: a second copy with no structure.
+    - A result whose envelope says ``ok: false`` is sent with ``isError: true``
+      (MCP spec, tool execution errors), so clients and evals see failures.
+    """
+
+    def tool(self, *args: Any, structured_output: bool | None = False, **kwargs: Any):
+        return super().tool(*args, structured_output=structured_output, **kwargs)
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        result = await super().call_tool(name, arguments)
+        if isinstance(result, dict):
+            return result
+        return mark_tool_error(result)
+
+
 # Create MCP server with lifespan management
-mcp = FastMCP(
+mcp = IllustratorFastMCP(
     "illustrator_mcp",
     lifespan=server_lifespan
 )
