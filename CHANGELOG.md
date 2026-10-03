@@ -9,6 +9,13 @@ History before 3.1.0 was not tracked here; see `git log` for it.
 
 ### Added
 
+- **`tests_live/`: a live suite for every `illustrator_*` tool** (83 steps, macOS +
+  Illustrator). It simulates only the CEP panel's WebSocket hop: the exact script the server
+  builds runs through `cep-extension/jsx/host.jsx` via osascript, so tool models, library
+  injection, envelopes and formatting are real. Each step reads state back through an
+  independent probe. It works only in documents it creates, suppresses alerts, and refuses to
+  start when foreign documents are open.
+
 - **`illustrator_text` replace: styled matches, batches, dry run.** Found while
   translating a 12-artboard deck, where bold lead-ins and bullet markers sit in
   separate style runs:
@@ -164,6 +171,18 @@ History before 3.1.0 was not tracked here; see `git log` for it.
     (1866 swatches). `.acb`/`.acbl` color books are reported as not readable.
 
 ### Fixed
+
+- **Found by a live run of every tool against Illustrator 30.8.1** (`tests_live/`):
+  - `illustrator_text` stripped leading and trailing whitespace from `find`,
+    `replace`, `replace_runs` and batch pairs (`ToolInputBase` strips strings), so
+    `"big " -> "enormous "` silently lost its space and `replace_runs=["Our mission ",
+    "is"]` glued words together. The text models keep whitespace now.
+  - `illustrator_path_import_svg` accepted `name` and ignored it; `drawPathPoints` never
+    applied `spec.name`. It does now. The docstring example used a `fill` parameter that
+    did not exist (and was silently ignored); `fill={r, g, b}` is implemented.
+  - `illustrator_export_document` timed out (R005) on SVG with live text although the file
+    was written: SVG embeds fonts, which took 3-15 s for one text frame and 40-60+ s for a
+    ten-frame document. SVG now gets 120 s (PDF keeps 60 s).
 
 - **Fill and stroke edits on compound paths were silent no-ops.**
   `style_set_fill`, `style_set_stroke`, `style_remove_fill`,

@@ -570,6 +570,17 @@ class TestTextInput:
             TextInput(action="replace_font", from_font="A", to_font="B", dry_run=True)
         TextInput(action="style", document="d.ai", uuids=["1"], space_after=4)
 
+    def test_find_and_replace_keep_their_leading_and_trailing_spaces(self):
+        # ToolInputBase strips whitespace; text edits must not ("big " -> "enormous ").
+        inp = TextInput(action="replace", find=" big ", replace=" enormous ")
+        assert (inp.find, inp.replace) == (" big ", " enormous ")
+        runs = TextInput(action="replace", find="a b", replace_runs=["Our mission ", " is"])
+        assert runs.replace_runs == ["Our mission ", " is"]
+        batch = TextInput(action="replace", replacements=[{"find": "x ", "replace": " y"}])
+        assert (batch.replacements[0].find, batch.replacements[0].replace) == ("x ", " y")
+        # the payload sent to Illustrator carries them too
+        assert inp.model_dump(exclude_none=True)["replace"] == " enormous "
+
     def test_color_needs_exactly_one_complete_model(self):
         with pytest.raises(ValidationError):
             TextInput(action="style", document="d.ai", uuids=["1"], color={"hex": "#ff0000", "gray": 10})

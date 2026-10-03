@@ -88,6 +88,44 @@ class TestInputValidation:
         assert inp.name == "arrow_path"
 
 
+class TestNameAndFill:
+    """name and fill reach drawPathPoints; geometry.jsx applies them (found by a live run:
+    name was accepted and silently ignored, and the docstring example used a fill that did not exist)."""
+
+    def test_fill_is_validated_as_rgb(self):
+        inp = PathImportSvgInput(d="M 0,0 L 1,1", fill={"r": 255, "g": 0, "b": 0})
+        assert (inp.fill.r, inp.fill.g, inp.fill.b) == (255, 0, 0)
+        with pytest.raises(Exception):
+            PathImportSvgInput(d="M 0,0 L 1,1", fill={"r": 300, "g": 0, "b": 0})
+        with pytest.raises(Exception):
+            PathImportSvgInput(d="M 0,0 L 1,1", fill={"r": 1})
+
+    @pytest.mark.asyncio
+    async def test_name_and_fill_are_in_the_draw_spec(self, monkeypatch):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        import illustrator_mcp.tools.execute as ex_mod
+        from illustrator_mcp.tools.import_svg import illustrator_path_import_svg
+        monkeypatch.setattr(ex_mod, "_counter", MagicMock())
+        params = PathImportSvgInput(d="M 0,0 L 100,0 L 100,50 Z", name="svg_sq", fill={"r": 1, "g": 2, "b": 3})
+        with patch("illustrator_mcp.tools.import_svg.execute_script_with_context",
+                   new_callable=AsyncMock, return_value={"result": json.dumps({"ok": True})}) as run:
+            await illustrator_path_import_svg(params)
+        script = run.call_args.kwargs["script"]
+        spec = json.loads(script.split("var spec = ", 1)[1].split(";    var result", 1)[0])
+        assert spec["name"] == "svg_sq"
+        assert spec["appearance"] == {"fill": {"r": 1, "g": 2, "b": 3}}
+
+    def test_geometry_applies_spec_name_to_the_result_item(self):
+        import re
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "illustrator_mcp/resources/scripts/geometry.jsx").read_text(encoding="utf-8")
+        body = src[src.index("function drawPathPoints"):]
+        assert re.search(r"if \(spec\.name\)\s*\{\s*resultItem\.name = String\(spec\.name\);", body)
+
+    def test_unfilled_import_sends_no_appearance(self):
+        assert PathImportSvgInput(d="M 0,0 L 1,1").fill is None
+
+
 # ── Error code passthrough tests (H7) ─────────────────────────────────
 
 

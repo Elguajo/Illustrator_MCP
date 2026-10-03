@@ -436,15 +436,15 @@ class TestTimeoutParameter:
         assert param.default is None
 
     def test_export_pdf_uses_60s_timeout(self):
-        """PDF export passes timeout=60.0."""
+        """PDF export passes timeout=60.0 (SVG shares it: see tests/test_export_timeout.py)."""
         source = _export_source()
-        assert "timeout=60.0 if params.format == ExportFormat.PDF else None" in source
+        assert "timeout=_EXPORT_TIMEOUTS.get(params.format)" in source  # table: tests/test_export_timeout.py
 
     def test_non_pdf_formats_pass_none_timeout(self):
         """Non-PDF formats pass timeout=None (uses default)."""
         source = _export_source()
-        # The ternary produces None for non-PDF
-        assert "else None" in source
+        # formats absent from _EXPORT_TIMEOUTS (png, jpg) get None; see tests/test_export_timeout.py
+        assert "_EXPORT_TIMEOUTS.get(params.format)" in source
 
     @pytest.mark.asyncio
     async def test_timeout_60_passed_to_bridge_for_pdf(self):
