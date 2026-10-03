@@ -86,8 +86,110 @@ class TestReplace:
         assert res["replaced_count"] == 1
         assert res["skipped_occurrences"] == [{
             "uuid": "1", "index": 0, "text": "abcd", "reason": "mixed_styles",
+            "runs": [{"text": "ab", "font": "MyriadPro-Regular", "size": 12},
+                     {"text": "cd", "font": "Georgia", "size": 12}],
             "note": res["skipped_occurrences"][0]["note"],
         }]
+        assert "replace_runs" in res["skipped_occurrences"][0]["note"]
+
+    def test_replace_runs_writes_each_run_in_its_own_style(self):
+        spec = _doc(_frame("1", [
+            {"text": "Mission ", "font": "Georgia", "size": 20, "fill": RED},
+            {"text": "is to give"},
+        ]))
+        v = jsx_value(LIBS, spec, _after(
+            'dtReplaceText(doc, {find: "Mission is to give", replace_runs: ["Our mission ", "is to provide"]})'))
+        assert v["text"] == "Our mission is to provide"
+        assert [(r["start"], r["length"], r["font"], r["size"]) for r in v["runs"]] == [
+            (0, 12, "Georgia", 20), (12, 13, "MyriadPro-Regular", 12)]
+        assert v["runs"][0]["fill"]["hex"] == "#c80000"
+        assert v["res"]["replaced_count"] == 1 and v["res"]["skipped_occurrences"] == []
+        assert v["res"]["success_count"] == 1 and v["res"]["fail_count"] == 0
+
+    def test_replace_runs_handles_several_matches_and_length_changes(self):
+        spec = _doc(_frame("1", [
+            {"text": "ab", "font": "Georgia"}, {"text": "cd"}, {"text": " x ab"}, {"text": "cd", "size": 20},
+        ]))
+        v = jsx_value(LIBS, spec, _after(
+            'dtReplaceText(doc, {find: "abcd", replace_runs: ["LONGER", "z"]})'))
+        assert v["text"] == "LONGERz x LONGERz"
+        assert [(r["start"], r["length"], r["font"], r["size"]) for r in v["runs"]] == [
+            (0, 6, "Georgia", 12), (6, 10, "MyriadPro-Regular", 12), (16, 1, "MyriadPro-Regular", 20)]
+        assert v["res"]["replaced_count"] == 2
+
+    def test_replace_runs_with_an_empty_piece_removes_only_that_run(self):
+        spec = _doc(_frame("1", [{"text": "A-", "font": "Georgia"}, {"text": "B"}]))
+        v = jsx_value(LIBS, spec, _after('dtReplaceText(doc, {find: "A-B", replace_runs: ["", "Q"]})'))
+        assert v["text"] == "Q"
+        assert [(r["start"], r["length"], r["font"]) for r in v["runs"]] == [(0, 1, "MyriadPro-Regular")]
+
+    def test_replace_runs_with_the_wrong_run_count_is_skipped(self):
+        spec = _doc(_frame("1", [{"text": "ab"}, {"text": "cd", "font": "Georgia"}]))
+        v = jsx_value(LIBS, spec, _after('dtReplaceText(doc, {find: "abcd", replace_runs: ["only one"]})'))
+        assert v["text"] == "abcd"
+        occ = v["res"]["skipped_occurrences"]
+        assert [o["reason"] for o in occ] == ["run_count_mismatch"]
+        assert [r["text"] for r in occ[0]["runs"]] == ["ab", "cd"]
+        assert v["res"]["replaced_count"] == 0
+
+    def test_replace_runs_on_a_uniform_match_needs_exactly_one_string(self):
+        spec = _doc(_frame("1", [{"text": "plain old text"}]))
+        v = jsx_value(LIBS, spec, _after('dtReplaceText(doc, {find: "old", replace_runs: ["new"]})'))
+        assert v["text"] == "plain new text"
+
+    def test_lost_style_in_a_run_is_caught_by_read_back(self):
+        spec = _doc(_frame("1", [{"text": "a", "font": "Georgia"}, {"text": "b"}]))
+        expr = ("(function(){ var orig = Object.getOwnPropertyDescriptor(Range.prototype, 'contents');"
+                " Object.defineProperty(Range.prototype, 'contents', { get: orig.get,"
+                " set: function(v){ orig.set.call(this, v);"
+                "   for (var i = this._start; i < this._start + v.length; i++) this._s.chars[i].a.textFont = FONTS['ArialMT']; } });"
+                " return dtReplaceText(doc, {find: 'ab', replace_runs: ['x', 'y']}); })()")
+        res = jsx_value(LIBS, spec, expr)
+        assert res["failed_objects"][0]["reason"] == "style_not_preserved"
+
+    def test_dry_run_changes_nothing_and_lists_matches_with_runs(self):
+        spec = _doc(_frame("1", [{"text": "ab"}, {"text": "cd", "font": "Georgia"}, {"text": " abcd"}]))
+        v = jsx_value(LIBS, spec, _after('dtReplaceText(doc, {find: "abcd", replace: "X", dry_run: true})'))
+        assert v["text"] == "abcd abcd"
+        res = v["res"]
+        assert res["dry_run"] is True and res["match_count"] == 2 and res["would_replace"] == 1
+        assert res["replaced_count"] == 0 and res["changed"] == []
+        assert [(m["index"], m["would"]) for m in res["matches"]] == [(0, "skip"), (5, "replace")]
+        assert [r["font"] for r in res["matches"][0]["runs"]] == ["MyriadPro-Regular", "Georgia"]
+        assert res["matches"][0]["reason"] == "mixed_styles"
+
+    def test_batch_applies_pairs_in_order_and_reports_each(self):
+        spec = _doc(_frame("1", [{"text": "Garage and dacha"}]), _frame("2", [{"text": "dacha"}]))
+        expr = ('dtReplaceText(doc, {replacements: ['
+                '{find: "Garage", replace: "Gate"}, {find: "Gate and", replace: "Gate or"},'
+                '{find: "dacha", replace: "cottage"}, {find: "absent", replace: "x"}]})')
+        res = jsx_value(LIBS, spec, expr)
+        assert [(r["index"], r["replaced_count"]) for r in res["results"]] == [(0, 1), (1, 1), (2, 2), (3, 0)]
+        assert res["replaced_count"] == 4
+        assert {c["pair"] for c in res["changed"]} == {0, 1, 2}
+
+    def test_batch_pair_can_carry_replace_runs_and_its_own_flags(self):
+        spec = _doc(_frame("1", [{"text": "Hi ", "font": "Georgia"}, {"text": "THERE hi there"}]))
+        expr = ('(function(){ var r = dtReplaceText(doc, {replacements: ['
+                '{find: "Hi THERE", replace_runs: ["Hello ", "YOU"]},'
+                '{find: "HI THERE", replace: "zzz", case_sensitive: false}]});'
+                ' return { res: r, text: doc.getPageItemFromUuid("1").story.textRange.contents }; })()')
+        v = jsx_value(LIBS, spec, expr)
+        # the second pair is case-insensitive on its own and sees the first pair's output
+        assert v["text"] == "Hello YOU zzz"
+        assert [r["replaced_count"] for r in v["res"]["results"]] == [1, 1]
+
+    def test_batch_failures_name_their_pair(self):
+        spec = _doc(_frame("1", [{"text": "ab"}, {"text": "cd", "font": "Georgia"}]))
+        res = jsx_value(LIBS, spec, 'dtReplaceText(doc, {replacements: [{find: "zz", replace: "y"}, {find: "abcd", replace: "X"}]})')
+        assert [o["pair"] for o in res["skipped_occurrences"]] == [1]
+
+    def test_forced_line_break_passes_through_find_and_replace(self):
+        br = "String.fromCharCode(3)"
+        spec = _doc(_frame("1", [{"text": "one"}, {"text": "\u0003"}, {"text": "two\rthree"}]))
+        v = jsx_value(LIBS, spec, _after(
+            'dtReplaceText(doc, {find: "one" + ' + br + ' + "two", replace: "1" + ' + br + ' + "2\\n"})'))
+        assert v["text"] == "1\u00032\r\rthree"
 
     def test_empty_replacement_deletes(self):
         spec = _doc(_frame("1", [{"text": "remove THIS please"}]))
@@ -437,6 +539,21 @@ class TestTextInput:
         with pytest.raises(ValidationError):
             TextInput(action="outline", uuids=["1"])  # uuids without document
         TextInput(action="replace", find="a", replace="")
+        TextInput(action="replace", find="a", replace_runs=["x", "y"])
+        TextInput(action="replace", replacements=[{"find": "a", "replace": ""}, {"find": "b", "replace_runs": ["c"]}])
+        TextInput(action="replace", find="a", replace="b", dry_run=True)
+        for bad in (
+            dict(find="a", replace="b", replace_runs=["c"]),           # both
+            dict(find="a", replace_runs=[]),                            # empty runs
+            dict(find="a", replace="b", replacements=[{"find": "x", "replace": "y"}]),
+            dict(replacements=[{"find": "x"}]),                         # pair without replacement
+            dict(replacements=[{"find": "x", "replace": "y", "replace_runs": ["z"]}]),
+            dict(replacements=[]),
+        ):
+            with pytest.raises(ValidationError):
+                TextInput(action="replace", **bad)
+        with pytest.raises(ValidationError):
+            TextInput(action="replace_font", from_font="A", to_font="B", dry_run=True)
         TextInput(action="style", document="d.ai", uuids=["1"], space_after=4)
 
     def test_color_needs_exactly_one_complete_model(self):

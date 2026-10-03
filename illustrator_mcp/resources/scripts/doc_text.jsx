@@ -159,35 +159,81 @@ function dtFindAll(text, find, caseSensitive, wholeWord) {
     return hits;
 }
 
-/** Normalize line breaks to Illustrator's paragraph separator. */
+/**
+ * Normalize line breaks to Illustrator's paragraph separator. A forced
+ * (soft) line break is the control character U+0003 and passes through.
+ */
 function dtNormalizeBreaks(s) {
     return String(s).replace(/\r\n|\n/g, "\r");
 }
 
-/**
- * Style-preserving find/replace.
- * P.find (required), P.replace (may be ""), P.case_sensitive (default
- * true), P.whole_word (default false), P.uuids (default: every frame).
- * Works per story, so a match that crosses threaded frames is found.
- * A match whose characters do not share one style is skipped and
- * reported: the replacement could not keep "the" original style.
- */
-function dtReplaceText(doc, P) {
-    dtCheckDocument(doc, P);
-    var find = dtNormalizeBreaks(P.find || "");
-    if (!find.length) dmFail("find must not be empty");
-    var repl = dtNormalizeBreaks(P.replace === undefined || P.replace === null ? "" : P.replace);
-    var caseSensitive = P.case_sensitive !== false;
-    var wholeWord = !!P.whole_word;
+/** Style runs of the n characters at `at`: [{off, len, key, font, size}]. */
+function dtMatchRuns(ranges, at, n) {
+    var runs = [];
+    for (var c = 0; c < n; c++) {
+        var ca = ranges[at + c].characterAttributes;
+        var key = dtStyleKey(ca);
+        if (runs.length && runs[runs.length - 1].key === key) {
+            runs[runs.length - 1].len++;
+            continue;
+        }
+        var font = "";
+        try { font = String(ca.textFont.name); } catch (e) {}
+        runs.push({ off: c, len: 1, key: key, font: font, size: dmRound(ca.size) });
+    }
+    return runs;
+}
 
-    var col = dtCollectFrames(doc, P);
-    var failed = col.failed;
-    var skipped = [];
-    var changed = [];
-    var skippedOcc = [];
+/** Runs of a match as the caller sees them: their text, font and size. */
+function dtRunReport(text, at, runs) {
+    var out = [];
+    for (var i = 0; i < runs.length; i++) {
+        out.push({ text: text.substr(at + runs[i].off, runs[i].len), font: runs[i].font, size: runs[i].size });
+    }
+    return out;
+}
+
+/** The find/replace requests of a call: P.replacements, or the single P.find. */
+function dtReplacePairs(P) {
+    var pairs = [];
+    var i;
+    function build(src) {
+        var find = dtNormalizeBreaks(src.find || "");
+        if (!find.length) dmFail("find must not be empty");
+        var pair = {
+            find: find,
+            repl: null,
+            runs: null,
+            caseSensitive: src.case_sensitive === undefined || src.case_sensitive === null
+                ? P.case_sensitive !== false : src.case_sensitive !== false,
+            wholeWord: src.whole_word === undefined || src.whole_word === null
+                ? !!P.whole_word : !!src.whole_word
+        };
+        if (src.replace_runs && src.replace_runs.length) {
+            pair.runs = [];
+            for (var k = 0; k < src.replace_runs.length; k++) pair.runs.push(dtNormalizeBreaks(src.replace_runs[k]));
+        } else {
+            pair.repl = dtNormalizeBreaks(src.replace === undefined || src.replace === null ? "" : src.replace);
+        }
+        return pair;
+    }
+    if (P.replacements && P.replacements.length) {
+        for (i = 0; i < P.replacements.length; i++) pairs.push(build(P.replacements[i]));
+    } else {
+        pairs.push(build(P));
+    }
+    return pairs;
+}
+
+/**
+ * One find/replace pair over the frames in `col`. Returns its own tallies;
+ * dtReplaceText merges them.
+ */
+function dtReplaceOne(doc, col, pair, dry) {
+    var find = pair.find;
+    var out = { failed: [], skipped: [], changed: [], skippedOcc: [], replaced: 0, success: 0,
+        matches: [], matchCount: 0, wouldReplace: 0 };
     var seenStory = {};
-    var replacedTotal = 0;
-    var success = 0;
 
     for (var f = 0; f < col.frames.length; f++) {
         var tf = col.frames[f];
@@ -200,13 +246,13 @@ function dtReplaceText(doc, P) {
         for (var b = 0; b < frames.length && !block; b++) block = dtBlockReason(frames[b]);
         var story = tf.story;
         var text = String(story.textRange.contents);
-        var hits = dtFindAll(text, find, caseSensitive, wholeWord);
+        var hits = dtFindAll(text, find, pair.caseSensitive, pair.wholeWord);
         if (block) {
             // Only worth reporting when the frame actually contains a match.
             if (hits.length) {
                 var sk = dtSkip(tf, block);
                 sk.matches = hits.length;
-                skipped.push(sk);
+                out.skipped.push(sk);
             }
             continue;
         }
@@ -216,62 +262,144 @@ function dtReplaceText(doc, P) {
             var h;
             for (h = 0; h < hits.length; h++) {
                 var at = hits[h];
-                var styleKey = dtStyleKey(ranges[at].characterAttributes);
-                var uniform = true;
-                for (var c = at + 1; c < at + find.length; c++) {
-                    if (dtStyleKey(ranges[c].characterAttributes) !== styleKey) { uniform = false; break; }
+                var runs = dtMatchRuns(ranges, at, find.length);
+                var pieces = null;
+                var reason = null;
+                var note = null;
+                if (pair.runs) {
+                    if (pair.runs.length === runs.length) {
+                        pieces = pair.runs;
+                    } else {
+                        reason = "run_count_mismatch";
+                        note = "replace_runs has " + pair.runs.length + " string(s) but the match has " + runs.length +
+                            " style run(s) (listed in runs); give one string per run, in order.";
+                    }
+                } else if (runs.length === 1) {
+                    pieces = [pair.repl];
+                } else {
+                    reason = "mixed_styles";
+                    note = "The match spans " + runs.length + " differently styled runs (listed in runs). Pass " +
+                        "replace_runs with one string per run to replace each in its own style, or replace the " +
+                        "uniformly styled parts separately.";
                 }
-                if (!uniform) {
-                    if (skippedOcc.length < 100) {
-                        skippedOcc.push({ uuid: key, index: at, text: text.substr(at, find.length),
-                            reason: "mixed_styles",
-                            note: "The match spans differently styled characters; edit it with action='style' or replace a uniformly styled part." });
+                out.matchCount++;
+                if (dry && out.matches.length < 200) {
+                    var m = { uuid: key, index: at, text: text.substr(at, find.length),
+                        would: pieces ? "replace" : "skip", runs: dtRunReport(text, at, runs) };
+                    if (reason) m.reason = reason;
+                    out.matches.push(m);
+                }
+                if (!pieces) {
+                    if (out.skippedOcc.length < 100) {
+                        out.skippedOcc.push({ uuid: key, index: at, text: text.substr(at, find.length),
+                            reason: reason, runs: dtRunReport(text, at, runs), note: note });
                     }
                     continue;
                 }
-                plan.push({ at: at, key: styleKey });
+                plan.push({ at: at, runs: runs, pieces: pieces });
             }
-            // Right to left, so earlier indices stay valid.
+            if (dry) {
+                out.wouldReplace += plan.length;
+                continue;
+            }
+            // Right to left, so earlier indices stay valid; inside a match, last run first.
             var expected = text;
+            var k;
             for (h = plan.length - 1; h >= 0; h--) {
                 var p = plan[h];
-                var r = dtRange(story, p.at, find.length);
-                if (repl.length) r.contents = repl;
-                else r.remove();
-                expected = expected.substring(0, p.at) + repl + expected.substring(p.at + find.length);
+                for (k = p.runs.length - 1; k >= 0; k--) {
+                    var r = dtRange(story, p.at + p.runs[k].off, p.runs[k].len);
+                    if (p.pieces[k].length) r.contents = p.pieces[k];
+                    else r.remove();
+                }
+                expected = expected.substring(0, p.at) + p.pieces.join("") + expected.substring(p.at + find.length);
             }
-            // Read back: the story text, then the style of each replacement.
+            // Read back: the story text, then the style of each replaced run.
             var actual = String(story.textRange.contents);
             if (actual !== expected) {
-                failed.push({ uuid: key, reason: "verify_failed",
+                out.failed.push({ uuid: key, reason: "verify_failed",
                     detail: "Story text after replacement differs from the expected result" });
                 continue;
             }
             var styleLost = 0;
-            if (repl.length && plan.length) {
+            if (plan.length) {
                 var after = story.textRanges;
                 var shift = 0;
                 for (h = 0; h < plan.length; h++) {
-                    var s0 = plan[h].at + shift;
-                    if (dtStyleKey(after[s0].characterAttributes) !== plan[h].key ||
-                        dtStyleKey(after[s0 + repl.length - 1].characterAttributes) !== plan[h].key) {
-                        styleLost++;
+                    var pos = plan[h].at + shift;
+                    for (k = 0; k < plan[h].runs.length; k++) {
+                        var plen = plan[h].pieces[k].length;
+                        if (plen) {
+                            if (dtStyleKey(after[pos].characterAttributes) !== plan[h].runs[k].key ||
+                                dtStyleKey(after[pos + plen - 1].characterAttributes) !== plan[h].runs[k].key) {
+                                styleLost++;
+                            }
+                        }
+                        pos += plen;
                     }
-                    shift += repl.length - find.length;
+                    shift += plan[h].pieces.join("").length - find.length;
                 }
             }
             if (styleLost) {
-                failed.push({ uuid: key, reason: "style_not_preserved", count: styleLost });
+                out.failed.push({ uuid: key, reason: "style_not_preserved", count: styleLost });
                 continue;
             }
-            success++;
-            replacedTotal += plan.length;
-            if (plan.length) changed.push({ uuid: key, replaced: plan.length, frames: frames.length });
+            out.success++;
+            out.replaced += plan.length;
+            if (plan.length) out.changed.push({ uuid: key, replaced: plan.length, frames: frames.length });
         } catch (e) {
-            failed.push({ uuid: key, reason: "error", detail: String(e.message || e) });
+            out.failed.push({ uuid: key, reason: "error", detail: String(e.message || e) });
         }
     }
-    return dtResult(doc, {
+    return out;
+}
+
+/**
+ * Style-preserving find/replace.
+ * P.find (required) with P.replace (may be "") or P.replace_runs; or
+ * P.replacements, a list of such pairs applied in order, each on the text
+ * the previous pair left. P.case_sensitive (default true), P.whole_word
+ * (default false), P.uuids (default: every frame), P.dry_run (report the
+ * matches and what would happen, change nothing).
+ * Works per story, so a match that crosses threaded frames is found.
+ * A match whose characters do not share one style is skipped and reported
+ * unless the caller gave replace_runs: one string per style run of the
+ * match, each written in that run's own style.
+ */
+function dtReplaceText(doc, P) {
+    dtCheckDocument(doc, P);
+    var pairs = dtReplacePairs(P);
+    var batch = !!(P.replacements && P.replacements.length);
+    var dry = !!P.dry_run;
+    var col = dtCollectFrames(doc, P);
+    var failed = col.failed.slice(0);
+    var skipped = [];
+    var changed = [];
+    var skippedOcc = [];
+    var matches = [];
+    var results = [];
+    var replacedTotal = 0;
+    var success = 0;
+    var matchCount = 0;
+    var wouldReplace = 0;
+
+    for (var i = 0; i < pairs.length; i++) {
+        var one = dtReplaceOne(doc, col, pairs[i], dry);
+        var j;
+        for (j = 0; j < one.failed.length; j++) { if (batch) one.failed[j].pair = i; failed.push(one.failed[j]); }
+        for (j = 0; j < one.skipped.length; j++) { if (batch) one.skipped[j].pair = i; skipped.push(one.skipped[j]); }
+        for (j = 0; j < one.changed.length; j++) { if (batch) one.changed[j].pair = i; changed.push(one.changed[j]); }
+        for (j = 0; j < one.skippedOcc.length; j++) { if (batch) one.skippedOcc[j].pair = i; skippedOcc.push(one.skippedOcc[j]); }
+        for (j = 0; j < one.matches.length; j++) { if (batch) one.matches[j].pair = i; matches.push(one.matches[j]); }
+        replacedTotal += one.replaced;
+        success += one.success;
+        matchCount += one.matchCount;
+        wouldReplace += one.wouldReplace;
+        results.push({ index: i, find: pairs[i].find, replaced_count: one.replaced,
+            match_count: one.matchCount, skipped_occurrences: one.skippedOcc.length,
+            failed: one.failed.length });
+    }
+    var result = {
         replaced_count: replacedTotal,
         changed: changed,
         skipped_occurrences: skippedOcc,
@@ -279,7 +407,15 @@ function dtReplaceText(doc, P) {
         fail_count: failed.length,
         failed_objects: failed,
         skipped_objects: skipped
-    });
+    };
+    if (batch) result.results = results;
+    if (dry) {
+        result.dry_run = true;
+        result.match_count = matchCount;
+        result.would_replace = wouldReplace;
+        result.matches = matches;
+    }
+    return dtResult(doc, result);
 }
 
 // ==================== Font replacement ====================
