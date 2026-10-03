@@ -1,4 +1,5 @@
-import asyncio, json, os, subprocess, sys, struct, time, zlib
+import asyncio, json, os, re, subprocess, sys, struct, time, zlib
+PRE_NAMES = []
 """Live suite: one or more real steps per illustrator_* tool, with independent read-back.
 
 See live_harness.py for how it talks to Illustrator and its safety rules."""
@@ -36,18 +37,24 @@ def make_png(path, w=64, h=48):
 
 async def main():
     only = set(sys.argv[1:])
-    names = probe("var o = []; for (var i = 0; i < app.documents.length; i++) o.push(app.documents[i].name); return o;")
-    foreign = [n for n in names if not (n.startswith('mcp-live') or n == 't1.ai')]
+    info = probe("var o = []; for (var i = 0; i < app.documents.length; i++) o.push([app.documents[i].name, app.documents[i].pageItems.length]); return o;")
+    mine = lambda n: n.startswith("mcp-live") or n == "t1.ai"
+    # A blank, untouched "Untitled-N" (Illustrator opens one on launch) is left alone and ignored;
+    # anything else that this harness did not create stops the run.
+    global PRE_NAMES
+    PRE_NAMES = [n for n, items in info if re.fullmatch(r"Untitled-\d+", n) and items == 0]
+    foreign = [n for n, _ in info if not mine(n) and n not in PRE_NAMES]
     if foreign:
         print('ABORT: documents not created by this harness are open:', foreign); return
-    for _ in names:
-        probe("app.activeDocument.close(SaveOptions.DONOTSAVECHANGES); return 1;")
+    for n, _ in info:
+        if mine(n):
+            probe("for (var i = 0; i < app.documents.length; i++) if (app.documents[i].name == %s) { app.documents[i].activate(); app.documents[i].close(SaveOptions.DONOTSAVECHANGES); break; } return 1;" % json.dumps(n))
 
     # ---------------- illustrator_document ----------------
     async def doc_list_empty():
         env, _ = await T("illustrator_document", action="list")
-        return ok(env) and env["result"]["count"] == 0 or f"unexpected: {env}"
-    await step("illustrator_document", "list (no documents open)", doc_list_empty)
+        return ok(env) and env["result"]["count"] == len(PRE_NAMES) or f"unexpected: {env}"
+    await step("illustrator_document", "list (only pre-existing blank documents open)", doc_list_empty)
 
     async def doc_create():
         env, _ = await T("illustrator_document", action="create", width=600, height=400, name=DOC, color_mode="RGB")
@@ -340,6 +347,31 @@ async def main():
         clipped = probe("var g = app.activeDocument.groupItems, n = 0; for (var i = 0; i < g.length; i++) if (g[i].clipped) n++; return n;")
         return (ok(env) and clipped >= 1) or f"clipped groups={clipped} {str(env)[:300]}"
     await step("illustrator_execute_task", "clip_create makes a clipping group", lay_clip)
+
+    async def sel_task():
+        probe("var d = app.activeDocument; var r = d.pathItems.rectangle(-300, 400, 60, 40); r.name = 'sel_1'; r.stroked = false; var c = new RGBColor(); c.red = 1; c.green = 1; c.blue = 1; r.fillColor = c; d.selection = [r]; return 1;")
+        env, _ = await T("illustrator_execute_task", payload={"task": "style_set_fill", "targets": {"type": "selection"}, "params": {"r": 0, "g": 160, "b": 80}}, return_preview=False)
+        fill = probe("var f = app.activeDocument.pageItems.getByName('sel_1').fillColor; return [Math.round(f.red), Math.round(f.green), Math.round(f.blue)];")
+        kept = probe("return app.activeDocument.selection.length;")
+        return (ok(env) and fill == [0, 160, 80] and kept == 1) or f"fill={fill} selection kept={kept} {str(env)[:200]}"
+    await step("illustrator_execute_task", "selection target: fill applied and selection kept", sel_task)
+
+    async def sel_ungroup():
+        probe("var d = app.activeDocument; for (var i = 0; i < 2; i++) { var r = d.pathItems.rectangle(-340 - i * 20, 500 + i * 30, 20, 15); r.name = 'selg_' + i; } return 1;")
+        await T("illustrator_execute_task", payload={"task": "group_create", "targets": {"type": "query", "itemType": "PathItem", "pattern": "selg_*"}, "params": {"name": "sel_group"}}, return_preview=False)
+        probe("var d = app.activeDocument; d.selection = [d.groupItems.getByName('sel_group')]; return 1;")
+        env, _ = await T("illustrator_execute_task", payload={"task": "group_ungroup", "targets": {"type": "selection"}}, return_preview=False)
+        left = probe("var g = app.activeDocument.groupItems, n = 0; for (var i = 0; i < g.length; i++) if (g[i].name == 'sel_group') n++; return n;")
+        return (ok(env) and left == 0) or f"groups left={left} {str(env)[:200]}"
+    await step("illustrator_execute_task", "selection target: group_ungroup acts on the selected group", sel_ungroup)
+
+    async def sel_readonly():
+        probe("var d = app.activeDocument; d.selection = [d.pageItems.getByName('sel_1')]; return 1;")
+        env, _ = await T("illustrator_query_items", targets={"type": "layer", "layer": "Layer 1"})
+        env2, _ = await T("illustrator_query_items", targets={"type": "selection"})
+        kept = probe("return app.activeDocument.selection.length;")
+        return (ok(env) and ok(env2) and kept == 1) or f"read-only queries left selection={kept}"
+    await step("illustrator_query_items", "read-only queries leave the selection alone", sel_readonly)
 
     # ---------------- illustrator_text ----------------
     TXT = lambda **k: T("illustrator_text", uuids=[IDS["txt_c"]], document=IDS["document"], **k)
@@ -698,7 +730,7 @@ async def main():
         c = probe(COUNTS)
         names = probe("var o = []; for (var i = 0; i < app.documents.length; i++) o.push(app.documents[i].name); return o;")
         # the pasted PDF carries the earlier test content (including images), so count vectors, not placed items
-        return (ok(env) and c["paths"] > 0 and len(names) == 1) or f"{c} docs={names} {str(env)[:300]}"
+        return (ok(env) and c["paths"] > 0 and len(names) == len(PRE_NAMES) + 1) or f"{c} docs={names} {str(env)[:300]}"
     await step("illustrator_place_file", "embed_editable opens a PDF as vectors (document intact)", pdf_editable)
 
     async def trace_vector_refused():
@@ -743,7 +775,7 @@ async def main():
         n0 = probe("return app.documents.length;")
         env2, _ = await T("illustrator_document", action="open", file_path=str(WORK / "t1.ai"))
         n1 = probe("return app.documents.length;")
-        return (ok(env) and n0 == 0 and ok(env2) and n1 == 1) or f"{n0} {n1} {str(env2)[:300]}"
+        return (ok(env) and n0 == len(PRE_NAMES) and ok(env2) and n1 == len(PRE_NAMES) + 1) or f"{n0} {n1} {str(env2)[:300]}"
     await step("illustrator_document", "close, then reopen the saved file", doc_close_open)
 
     async def doc_switch():
@@ -754,12 +786,16 @@ async def main():
     await step("illustrator_document", "switch between two documents", doc_switch)
 
     async def doc_cleanup():
-        # close both without saving
-        for _ in range(3):
-            if probe("return app.documents.length;") == 0:
+        # close every document this run created, never the pre-existing blank ones
+        for _ in range(6):
+            left = probe("var o = []; for (var i = 0; i < app.documents.length; i++) o.push(app.documents[i].name); return o;")
+            extra = [n for n in left if n not in PRE_NAMES]
+            if not extra:
                 break
+            probe("for (var i = 0; i < app.documents.length; i++) if (app.documents[i].name == %s) { app.documents[i].activate(); break; } return 1;" % json.dumps(extra[0]))
             await T("illustrator_document", action="close", save_before_close=False)
-        return probe("return app.documents.length;") == 0 or "documents left open"
+        left = probe("var o = []; for (var i = 0; i < app.documents.length; i++) o.push(app.documents[i].name); return o;")
+        return sorted(left) == sorted(PRE_NAMES) or f"documents left open: {left}"
     await step("illustrator_document", "close all test documents without saving", doc_cleanup)
 
     # ---------------- summary ----------------

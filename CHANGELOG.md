@@ -9,7 +9,7 @@ History before 3.1.0 was not tracked here; see `git log` for it.
 
 ### Added
 
-- **`tests_live/`: a live suite for every `illustrator_*` tool** (98 steps, macOS +
+- **`tests_live/`: a live suite for every `illustrator_*` tool** (101 steps, macOS +
   Illustrator). It simulates only the CEP panel's WebSocket hop: the exact script the server
   builds runs through `cep-extension/jsx/host.jsx` via osascript, so tool models, library
   injection, envelopes and formatting are real. Each step reads state back through an
@@ -193,6 +193,10 @@ History before 3.1.0 was not tracked here; see `git log` for it.
     stale reference accepted the marker without error. The marker now goes to the raster.
     An unknown `trace_preset` was silently ignored (`loadFromPreset` returns false instead of
     throwing); it is reported as a warning now.
+  - Every `{"type": "selection"}` task did nothing ("Resolved 0 targets", `group_ungroup`,
+    `style_set_fill`, ...): the pipeline cleared `app.selection` right after its collect stage, but
+    the ops stage resolves the selection again. It also wiped the user's selection on any
+    `illustrator_query_items` call. The selection is kept when the task targets it and on dry runs.
   - `group_ungroup` could not ungroup anything: it moved children relative to the parent
     Layer with `PLACEAFTER`, which Layers reject, so every group failed ("Failed to ungroup").
     Children now move relative to the group, front-most first, keeping the stacking order.
