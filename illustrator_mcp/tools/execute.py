@@ -904,10 +904,12 @@ async def illustrator_execute_script(params: ExecuteScriptInput) -> Union[str, l
       - setEntirePath with >12 coord pairs — STOP and use smooth:true or illustrator_path_import_svg
 
     COORDINATE SYSTEM:
-      - API coordinates use top-left origin with y increasing downward (screen space)
-      - ExtendScript expects Y-up internally; use -y when calling Illustrator DOM methods
-      - Units: points (1 pt = 1/72 inch)
-      - Example: to place at visual position (100, 200), use position = [100, -200]
+      - The DOM is Y-up: y grows upward, artboardRect is [left, top, right, bottom] with top > bottom
+      - An artboard does not have to start at y = 0 (a new 600x400 document has [0, 400, 600, 0])
+      - Visual position (x, y) from an artboard's top-left: var r = doc.artboards[i].artboardRect;
+        item.position = [r[0] + x, r[1] - y]
+      - Canvas Y-down bounds from illustrator_inspect convert as y_dom = -y
+      - Units: points (1 pt = 1/72 inch); traps: resource illustrator://reference/extendscript
 
     EXAMPLES:
       Rectangle: doc.pathItems.rectangle(top, left, width, height)

@@ -126,8 +126,47 @@ class IllustratorFastMCP(FastMCP):
         return mark_tool_error(result)
 
 
+SERVER_INSTRUCTIONS = """\
+Live control of the running Adobe Illustrator through its CEP panel.
+
+Workflow
+1. Look first: illustrator_inspect (view structure, artboard, selection, details) returns native
+   uuids. illustrator_get_document dumps everything; use it only when you need every item.
+   illustrator_query_items resolves Task Protocol selectors.
+2. Act with the most specific tool; raw script is the last resort:
+   - existing text (replace, fonts, styling, outline): illustrator_text
+   - artboards: illustrator_artboards; documents (create, open, save, list, switch): illustrator_document
+   - drop shadow, Gaussian blur: illustrator_effects; swatch names and palettes: illustrator_swatches
+   - create shapes and text, paint, transform, align, group, layers, z-order: illustrator_execute_task
+   - unite, subtract, intersect, xor: illustrator_path_boolean; SVG path data: illustrator_path_import_svg
+   - place or trace a file: illustrator_place_file; tracing reference layer: illustrator_set_reference
+   - print and export problems: illustrator_preflight_check
+   - anything else: illustrator_execute_script, after reading resource illustrator://reference/extendscript
+3. Check: illustrator_export_document(return_image=true) or the annotated preview;
+   illustrator_ground_object maps a preview label [N] to its item. illustrator_history undoes and keeps
+   checkpoints; save one before a risky step.
+
+Identity
+- A uuid from illustrator_inspect is valid only in that document while it stays open. Pass
+  document=<result.document.name> with it; inspect again after open, reopen or switch.
+- @mcp:id (in item.note) survives save and reopen. illustrator_path_boolean and checkpoints use it.
+
+Coordinates
+- Typed tools: canvas-global points, Y-down, [left, top, right, bottom], same space as artboard bounds.
+- illustrator_execute_task element ops: x, y from the active artboard's top-left, Y-down.
+- Illustrator DOM (execute_script, path_import_svg bounds, ground_object *_ai bounds): Y-up, y_dom = -y.
+
+Results
+- Every tool returns {ok, warnings, error, diagnostics, result}; ok=false comes with isError and
+  error.code plus suggestions. illustrator_text, illustrator_effects and illustrator_swatches report
+  success_count, fail_count, failed_objects and skipped_objects: a partial success is ok=true, so
+  read fail_count.
+- Locked and hidden objects are skipped, never modified.
+"""
+
 # Create MCP server with lifespan management
 mcp = IllustratorFastMCP(
     "illustrator_mcp",
+    instructions=SERVER_INSTRUCTIONS,
     lifespan=server_lifespan
 )

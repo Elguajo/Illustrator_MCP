@@ -70,3 +70,21 @@ class TestServer:
         assert isinstance(out, CallToolResult)
         assert out.isError is True
         assert json.loads(out.content[0].text)["error"]["code"] == "V011"
+
+
+class TestServerInstructions:
+    def test_instructions_are_sent(self):
+        from illustrator_mcp.app import SERVER_INSTRUCTIONS
+        assert mcp.instructions == SERVER_INSTRUCTIONS
+
+    @pytest.mark.asyncio
+    async def test_every_tool_is_routed(self):
+        """A tool missing from the routing text is a tool the agent is never pointed at."""
+        tools = await mcp.list_tools()
+        missing = [t.name for t in tools if t.name not in mcp.instructions]
+        assert missing == []
+
+    def test_named_resource_exists(self):
+        from illustrator_mcp.tools.context import extendscript_reference_resource
+        assert "illustrator://reference/extendscript" in mcp.instructions
+        assert "## Verified Traps" in extendscript_reference_resource()

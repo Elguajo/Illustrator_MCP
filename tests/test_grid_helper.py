@@ -255,10 +255,11 @@ class TestToolDescription(unittest.TestCase):
         self.assertIn("element_create_batch", self.doc)
 
     def test_coordinate_system_section(self):
-        """COORDINATE SYSTEM section must document Y-down convention."""
+        """COORDINATE SYSTEM section must document the Y-up DOM and the artboard offset."""
         self.assertIn("COORDINATE SYSTEM:", self.doc)
-        self.assertIn("screen space", self.doc)
-        self.assertIn("-y", self.doc)
+        self.assertIn("Y-up", self.doc)
+        self.assertIn("item.position = [r[0] + x, r[1] - y]", self.doc)
+        self.assertIn("y_dom = -y", self.doc)
 
     def test_examples_section(self):
         """EXAMPLES section must include common API patterns."""
