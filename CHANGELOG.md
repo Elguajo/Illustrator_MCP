@@ -9,6 +9,25 @@ History before 3.1.0 was not tracked here; see `git log` for it.
 
 ### Added
 
+- **`illustrator_text` replace: styled matches, batches, dry run.** Found while
+  translating a 12-artboard deck, where bold lead-ins and bullet markers sit in
+  separate style runs:
+  - `replace_runs` writes one string per style run of a match, each in that
+    run's own font/size/color, instead of skipping the match. A run count that
+    does not match is skipped as `run_count_mismatch`.
+  - `skipped_occurrences` (and dry-run `matches`) now carry the match's `runs`
+    (text, font, size), so the caller can build `replace_runs`.
+  - `replacements` applies a list of pairs in one call, in order, each on the
+    text the previous pair left; the result has one entry per pair, and
+    failures and skips name their `pair`.
+  - `dry_run` reports every match and whether it would be replaced, changes
+    nothing.
+  - Line breaks: `\n` and `\r` are a paragraph break, `\u0003` is a forced line
+    break, in `find` as well as in `replace`. Verified live on Illustrator 30.8.1
+    in a throwaway document (real library prelude through osascript): a soft
+    break written by `replace` reads back as character 3 and gives two lines,
+    and `find` with `\u0003` matches it.
+
 - **Typed tools keyed by Illustrator's native `PageItem.uuid`** (first step of
   the hybrid toolset in `docs/ADOBE_MCPTOOLKIT_STUDY.md`):
   - `illustrator_inspect` — progressive views: `structure` (breadth-first

@@ -50,6 +50,29 @@ class TextColor(ToolInputBase):
         return self
 
 
+class ReplacePair(ToolInputBase):
+    """One find/replace request inside a batch; applied in list order."""
+    find: str = Field(..., min_length=1, description="literal text to find")
+    replace: Optional[str] = Field(None, description="replacement text ('' deletes the match)")
+    replace_runs: Optional[List[str]] = Field(
+        None,
+        description=(
+            "one replacement per style run of the match, each written in that run's own "
+            "style (for a match that spans bold and regular text, say). Use instead of replace."
+        ),
+    )
+    case_sensitive: Optional[bool] = Field(None, description="overrides the call's case_sensitive")
+    whole_word: Optional[bool] = Field(None, description="overrides the call's whole_word")
+
+    @model_validator(mode="after")
+    def _one_replacement(self):
+        if (self.replace is None) == (self.replace_runs is None):
+            raise ValueError("give exactly one of replace and replace_runs")
+        if self.replace_runs is not None and not self.replace_runs:
+            raise ValueError("replace_runs must not be empty")
+        return self
+
+
 class TextInput(ToolInputBase):
     """Input for text editing."""
     action: Literal["replace", "replace_font", "style", "outline"] = Field(
@@ -72,6 +95,25 @@ class TextInput(ToolInputBase):
     )
     find: Optional[str] = Field(None, min_length=1, description="replace: literal text to find")
     replace: Optional[str] = Field(None, description="replace: replacement text ('' deletes the match)")
+    replace_runs: Optional[List[str]] = Field(
+        None,
+        description=(
+            "replace: one replacement per style run of the match, each written in that run's own "
+            "style. Use instead of replace for a match that spans differently styled text; "
+            "dry_run lists the runs of every match."
+        ),
+    )
+    replacements: Optional[List[ReplacePair]] = Field(
+        None, min_length=1, max_length=500,
+        description=(
+            "replace: a batch of find/replace pairs applied in order in one call, each on the "
+            "text the previous pair left. Use instead of find/replace."
+        ),
+    )
+    dry_run: bool = Field(
+        False,
+        description="replace: change nothing; report every match, its style runs and whether it would be replaced",
+    )
     case_sensitive: bool = Field(True, description="replace: match case")
     whole_word: bool = Field(False, description="replace: only matches not inside a word")
     from_font: Optional[str] = Field(
@@ -91,9 +133,19 @@ class TextInput(ToolInputBase):
     def _check_action_fields(self):
         if self.uuids and not self.document:
             raise ValueError("uuids require document (result.document.name from illustrator_inspect)")
+        if self.dry_run and self.action != "replace":
+            raise ValueError("dry_run applies to action='replace' only")
         if self.action == "replace":
-            if self.find is None or self.replace is None:
-                raise ValueError("replace requires find and replace")
+            if self.replacements:
+                if self.find is not None or self.replace is not None or self.replace_runs is not None:
+                    raise ValueError("replacements replaces find/replace/replace_runs; give one or the other")
+            else:
+                if self.find is None:
+                    raise ValueError("replace requires find with replace or replace_runs, or replacements")
+                if (self.replace is None) == (self.replace_runs is None):
+                    raise ValueError("replace requires exactly one of replace and replace_runs")
+                if self.replace_runs is not None and not self.replace_runs:
+                    raise ValueError("replace_runs must not be empty")
         elif self.action == "replace_font":
             if not self.from_font or not self.to_font:
                 raise ValueError("replace_font requires from_font and to_font")
@@ -136,8 +188,14 @@ async def illustrator_text(params: TextInput) -> str:
     KEY CONCEPTS:
       replace keeps each match's own character attributes. A match whose
       characters are styled differently is not changed; it is listed in
-      skipped_occurrences. Matching works per story, so threaded frames are
-      searched as one text.
+      skipped_occurrences with its style runs. Give replace_runs (one string
+      per run, in order) to replace such a match, each run in its own style.
+      replacements applies a batch of find/replace pairs in one call, in
+      order; the result carries one entry per pair. dry_run changes nothing
+      and returns every match with its runs and what would happen.
+      Matching works per story, so threaded frames are searched as one text.
+      A match is one string: \\n and \\r are a paragraph break, \\u0003 is a
+      forced (soft) line break.
       replace_font changes only runs in from_font (use the name inspect
       reports; missing fonts are accepted) and leaves every other run alone.
       style ranges are 0-based character offsets within the frame;
@@ -158,6 +216,12 @@ async def illustrator_text(params: TextInput) -> str:
 
     EXAMPLES:
       illustrator_text(action="replace", uuids=["473"], document="poster.ai", find="2025", replace="2026")
+      illustrator_text(action="replace", uuids=["473"], document="poster.ai", dry_run=True,
+                       find="Our mission - to give")
+      illustrator_text(action="replace", uuids=["473"], document="poster.ai",
+                       find="Our mission - to give", replace_runs=["Our mission ", "is to give"])
+      illustrator_text(action="replace", document="poster.ai",
+                       replacements=[{"find": "Garage", "replace": "Gate"}, {"find": "Dacha", "replace": "Cottage"}])
       illustrator_text(action="replace_font", from_font="Helvetica", to_font="ArialMT")
       illustrator_text(action="style", uuids=["473"], document="poster.ai", start=6, length=3,
                        size=20, color={"hex": "#C80000"}, tracking=50)

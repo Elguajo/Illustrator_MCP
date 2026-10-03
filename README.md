@@ -257,7 +257,7 @@ Every tool carries a `CONTRACT:` line in its docstring and machine-checkable ann
 
 | Tool | Description |
 |---|---|
-| `illustrator_text` | Edit existing text by native `uuid`: `replace` (find/replace that keeps each match's character attributes; matches spanning differently styled characters are skipped and reported), `replace_font` (from a used font, missing ones included, to an installed one; other runs untouched), `style` (font, size, color, tracking over a character range; paragraph space before/after), `outline` (text to glyph paths, returns the new group's uuid and keeps `@mcp:id`). Pass `document` (from `illustrator_inspect`) with `uuids`. Locked or hidden frames are never modified; every write is read back. Text overflow is reported by `illustrator_inspect(view="details")`. |
+| `illustrator_text` | Edit existing text by native `uuid`: `replace` (find/replace that keeps each match's character attributes; matches spanning differently styled characters are skipped and reported with their style runs, or written run by run with `replace_runs`; `replacements` batches pairs, `dry_run` previews), `replace_font` (from a used font, missing ones included, to an installed one; other runs untouched), `style` (font, size, color, tracking over a character range; paragraph space before/after), `outline` (text to glyph paths, returns the new group's uuid and keeps `@mcp:id`). Pass `document` (from `illustrator_inspect`) with `uuids`. Locked or hidden frames are never modified; every write is read back. Text overflow is reported by `illustrator_inspect(view="details")`. |
 ### Effects & Swatches (2)
 
 | Tool | Description |
