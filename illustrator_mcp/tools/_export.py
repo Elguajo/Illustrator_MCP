@@ -47,8 +47,9 @@ async def illustrator_export_document(params: ExportDocumentInput) -> Union[str,
 
     NOTES:
       - artboard_only=True clips export to artboard; a pre-check warns if nothing is on it
-      - PDF export uses saveAs; PDF (60 s) and SVG (120 s) get a longer timeout (SVG embeds live
-        text fonts, which makes it slow and large; outline text first if you need a small, font-independent file)
+      - PDF export uses saveAs; PDF (60 s) and SVG (120 s) get a longer timeout
+      - SVG embeds only the glyphs the text uses (fontSubsetting=GLYPHSUSED). Illustrator's own
+        default embeds every glyph of each font used: ~1 MB and 1-15 s for one text frame
       - return_image returns base64 image bytes as ImageContent for visual verification
       - Overwrites existing file at file_path (destructive to filesystem)
     """
@@ -156,6 +157,10 @@ async def illustrator_export_document(params: ExportDocumentInput) -> Union[str,
         clip_opt = ""
         if params.format == ExportFormat.PNG:
             clip_opt = f"opts.artBoardClipping = {artboard_clip};"
+        elif params.format == ExportFormat.SVG:
+            # ExportOptionsSVG.fontSubsetting defaults to ALLGLYPHS: one Myriad Pro text
+            # frame exported 949 KB in 1-15 s; GLYPHSUSED gives 3 KB in 50 ms (30.8.1).
+            clip_opt = "opts.fontSubsetting = SVGFontSubsetting.GLYPHSUSED;"
 
         script = templates.EXPORT_STANDARD.substitute(
             ab_index_js=ab_index_js,
@@ -171,9 +176,9 @@ async def illustrator_export_document(params: ExportDocumentInput) -> Union[str,
     else:  # PDF uses saveAs
         script = templates.EXPORT_PDF.substitute(path=path)
 
-    # PDF and SVG get a longer timeout. An SVG with live text embeds its fonts: 3-15 s for
-    # one short text frame on 30.8.1, and 40-60+ s for a 10-frame test document, so the
-    # 30 s default reported R005 although Illustrator went on to write the file.
+    # PDF and SVG get a longer timeout: before the glyph subsetting above, an SVG with live
+    # text took 3-15 s per frame and 40-60+ s for a 10-frame document, so the 30 s default
+    # reported R005 although Illustrator went on to write the file. Kept as headroom.
     response = await execute_script_with_context(
         script=script,
         command_type="export_document",

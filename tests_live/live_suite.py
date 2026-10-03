@@ -530,8 +530,11 @@ async def main():
             if p.exists(): p.unlink()
             t0 = time.time()
             env, _ = await T("illustrator_export_document", file_path=str(p), format=fmt, artboard_only=True, artboard_index=0, scale=1.0)
-            print(f"      ({fmt}: {time.time() - t0:.1f}s, {p.stat().st_size if p.exists() else 0} bytes)", flush=True)
-            return (ok(env) and p.exists() and p.stat().st_size > 500) or f"exists={p.exists()} {str(env)[:300]}"
+            size = p.stat().st_size if p.exists() else 0
+            print(f"      ({fmt}: {time.time() - t0:.1f}s, {size} bytes)", flush=True)
+            if fmt == "svg" and size > 300_000:
+                return f"svg of a document with text is {size} bytes: all glyphs of every font were embedded (expected GLYPHSUSED)"
+            return (ok(env) and p.exists() and size > 500) or f"exists={p.exists()} {str(env)[:300]}"
         await step("illustrator_export_document", f"export {fmt} (file exists, >500 B)", exp)
 
     async def exp_img():
