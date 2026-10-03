@@ -121,3 +121,34 @@ function ownerDocumentOf(item) {
     }
     return null;
 }
+/** Native uuid scope: an opaque token for this open Document, never written to artwork. */
+function mcpDocumentSession(doc) {
+    var root = $.global;
+    if (!root.__mcpDocumentSessions) root.__mcpDocumentSessions = [];
+    var sessions = root.__mcpDocumentSessions;
+    var i, j, alive;
+    // Release closed DOM references. A reopened file gets a different Document.
+    for (i = sessions.length - 1; i >= 0; i--) {
+        alive = false;
+        for (j = 0; j < app.documents.length; j++) {
+            try { if (sessions[i].doc === app.documents[j]) alive = true; } catch (e) {}
+        }
+        if (!alive) sessions.splice(i, 1);
+    }
+    for (i = 0; i < sessions.length; i++) {
+        if (sessions[i].doc === doc) return sessions[i].id;
+    }
+    root.__mcpDocumentSessionCounter = (root.__mcpDocumentSessionCounter || 0) + 1;
+    var id = "doc-" + (+new Date()).toString(36) + "-" + root.__mcpDocumentSessionCounter;
+    sessions.push({ doc: doc, id: id });
+    return id;
+}
+
+function mcpCheckDocumentSession(doc, expected) {
+    if (expected && expected !== mcpDocumentSession(doc)) {
+        var e = new Error("Document session mismatch. Re-inspect after reopening or switching documents; nothing was changed by this request.");
+        e.dmUserError = true;
+        e.mcpNotStarted = true;
+        throw e;
+    }
+}

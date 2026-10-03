@@ -235,7 +235,7 @@ export function MCPControlPanel() {
         fontFamily: '"SF Mono", Menlo, monospace',
       }}>
         <span>{endpoint ?? 'no MCP server'}</span>
-        <span>v1.0.1</span>
+        <span>v1.1.0</span>
       </footer>
 
       <style>{`

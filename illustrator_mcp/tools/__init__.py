@@ -55,7 +55,7 @@ def register_tools(mcp):
     Explicitly register tools with the MCP instance.
     This replaces side-effect imports in server.py.
     """
-    # Core tool - the primary way to interact with Illustrator
+    # Raw ExtendScript escape hatch for operations beyond typed tools/SOC
     from illustrator_mcp.tools import execute
 
     # Document operations (essential file I/O)

@@ -1,5 +1,9 @@
 # Study: how successful app-automation MCP servers are built
 
+Historical snapshot: the `isError`, output-wrapper and server-instructions gaps below were fixed
+in `4620b6a` and `89c0d86`. See [MCP_AUTOMATION_PRACTICES.md](MCP_AUTOMATION_PRACTICES.md) for the
+expanded, commit-pinned study and the current implementation baseline.
+
 Status: research note, 2026-10-03. Companion to `ADOBE_MCPTOOLKIT_STUDY.md`. Sources are listed at
 the end; everything marked "measured" was run against this repository on 2026-10-03, everything
 else is what the cited source states.

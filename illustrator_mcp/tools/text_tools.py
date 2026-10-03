@@ -13,7 +13,7 @@ from typing import List, Literal, Optional
 from pydantic import ConfigDict, Field, model_validator
 
 from illustrator_mcp.shared import mcp
-from illustrator_mcp.tools.base import ToolInputBase, TOOL_ANNOTATIONS
+from illustrator_mcp.tools.base import DocumentSessionInput, ToolInputBase, TOOL_ANNOTATIONS
 from illustrator_mcp.tools.doc_model_tools import run_dm
 
 _INCLUDES = ["doc_model", "doc_text"]
@@ -75,7 +75,7 @@ class ReplacePair(ToolInputBase):
         return self
 
 
-class TextInput(ToolInputBase):
+class TextInput(DocumentSessionInput):
     """Input for text editing."""
     # ToolInputBase strips whitespace; find/replace/replace_runs must keep it
     # ("big " -> "enormous " is not "big " -> "enormous").

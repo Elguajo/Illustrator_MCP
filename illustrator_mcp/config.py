@@ -2,6 +2,7 @@
 Configuration management for Illustrator MCP.
 """
 import logging as _logging
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,6 +26,10 @@ class Config(BaseSettings):
     
     # WebSocket settings
     ws_host: str = Field(default="localhost", description="WebSocket host")
+    tool_profile: Literal["all", "core"] = Field(
+        "all", validation_alias="ILLUSTRATOR_MCP_TOOL_PROFILE",
+        description="Startup discovery profile; all preserves the full toolset",
+    )
     ws_port: int = Field(default=8081, ge=1024, le=65535, description="WebSocket port for bridge")
     
     # Timeout settings

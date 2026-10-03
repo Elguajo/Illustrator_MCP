@@ -40,6 +40,7 @@ interface CompleteResponse {
     result?: any;
     error?: string;
     duration: number;
+    execution: { state: 'not_started' | 'completed' | 'unknown'; safe_to_retry: boolean };
 }
 
 export function useMCP() {
@@ -127,6 +128,17 @@ export function useMCP() {
             const socket = new WebSocket(`ws://127.0.0.1:${port}`, subprotocol);
             ws.current = socket;
 
+            const sendHeartbeat = () => {
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: 'heartbeat',
+                        busy: isExecuting.current,
+                        activeRequestId: activeRequestId.current,
+                        uptimeMs: Date.now() - connectedAt.current,
+                    }));
+                }
+            };
+
             socket.onopen = () => {
                 setStatus('connected');
                 addLog('Connected to MCP Server', 'success');
@@ -139,16 +151,6 @@ export function useMCP() {
                 // which left the bridge unable to tell a healthy freshly
                 // connected panel from a dead one for HEARTBEAT_MS. Send one
                 // immediately, then keep the interval going.
-                const sendHeartbeat = () => {
-                    if (socket.readyState === WebSocket.OPEN) {
-                        socket.send(JSON.stringify({
-                            type: 'heartbeat',
-                            busy: isExecuting.current,
-                            activeRequestId: activeRequestId.current,
-                            uptimeMs: Date.now() - connectedAt.current,
-                        }));
-                    }
-                };
                 sendHeartbeat();
                 heartbeatTimer.current = window.setInterval(sendHeartbeat, HEARTBEAT_MS);
             };
@@ -166,6 +168,7 @@ export function useMCP() {
                                     id: data.id,
                                     type: 'complete',
                                     error: `BUSY: Script ${activeRequestId.current} still executing`,
+                                    execution: { state: 'not_started', safe_to_retry: true },
                                 }));
                                 addLog(`⊘ Rejected ${data.id} (busy)`, 'warning');
                             }
@@ -174,6 +177,7 @@ export function useMCP() {
 
                         isExecuting.current = true;
                         activeRequestId.current = data.id;
+                        sendHeartbeat();
 
                         const cmdType = data.command?.type || 'script';
                         const isStreaming = data.streaming === true;
@@ -187,13 +191,31 @@ export function useMCP() {
                         const script = `mcp_handle_request(${toExtendScriptLiteral(data)})`;
 
                         if (csInterface.current) {
+                            const host = csInterface.current;
+                            const runHost = (callback: (result: string) => void) => {
+                                try {
+                                    host.evalScript(script, callback);
+                                } catch (error) {
+                                    isExecuting.current = false;
+                                    activeRequestId.current = null;
+                                    sendHeartbeat();
+                                    if (socket.readyState === WebSocket.OPEN) {
+                                        socket.send(JSON.stringify({
+                                            id: data.id, type: 'complete',
+                                            error: `CEP execution failed: ${String(error)}`,
+                                            execution: { state: 'unknown', safe_to_retry: false },
+                                        }));
+                                    }
+                                }
+                            };
                             // For streaming requests, we need special handling
                             if (isStreaming) {
                                 // Execute and periodically check for results
                                 // The host script should return progress updates
-                                csInterface.current.evalScript(script, (result: string) => {
+                                runHost((result: string) => {
                                     isExecuting.current = false;
                                     activeRequestId.current = null;
+                                    sendHeartbeat();
                                     const duration = Math.round(performance.now() - startTime);
 
                                     // Parse result
@@ -201,7 +223,7 @@ export function useMCP() {
                                     try {
                                         parsedResult = JSON.parse(result);
                                     } catch (e) {
-                                        parsedResult = { result };
+                                        parsedResult = { error: 'C003: Invalid host response', executionUnknown: true };
                                     }
 
                                     // Send progress updates if available
@@ -227,19 +249,21 @@ export function useMCP() {
                                         command: cmdType,
                                         result: parsedResult.result ?? parsedResult,
                                         error: parsedResult.error,
-                                        duration
+                                        duration,
+                                        execution: { state: parsedResult.executionUnknown ? 'unknown' : 'completed', safe_to_retry: false }
                                     };
 
                                     if (socket.readyState === WebSocket.OPEN) {
                                         socket.send(JSON.stringify(completeResponse));
-                                        addLog(`✓ ${cmdType} (${duration}ms)`, 'success');
+                                        addLog(`${parsedResult.error ? '✗' : '✓'} ${cmdType} (${duration}ms)`, parsedResult.error ? 'error' : 'success');
                                     }
                                 });
                             } else {
                                 // Non-streaming: single response
-                                csInterface.current.evalScript(script, (result: string) => {
+                                runHost((result: string) => {
                                     isExecuting.current = false;
                                     activeRequestId.current = null;
+                                    sendHeartbeat();
                                     const duration = Math.round(performance.now() - startTime);
 
                                     // Parse result
@@ -247,7 +271,7 @@ export function useMCP() {
                                     try {
                                         parsedResult = JSON.parse(result);
                                     } catch (e) {
-                                        parsedResult = { result };
+                                        parsedResult = { error: 'C003: Invalid host response', executionUnknown: true };
                                     }
 
                                     const response: CompleteResponse = {
@@ -256,26 +280,27 @@ export function useMCP() {
                                         command: cmdType,
                                         result: parsedResult.result ?? parsedResult,
                                         error: parsedResult.error,
-                                        duration
+                                        duration,
+                                        execution: { state: parsedResult.executionUnknown ? 'unknown' : 'completed', safe_to_retry: false }
                                     };
 
                                     if (socket.readyState === WebSocket.OPEN) {
                                         socket.send(JSON.stringify(response));
-                                        addLog(`✓ ${cmdType} (${duration}ms)`, 'success');
+                                        addLog(`${parsedResult.error ? '✗' : '✓'} ${cmdType} (${duration}ms)`, parsedResult.error ? 'error' : 'success');
                                     }
                                 });
                             }
                         } else {
-                            addLog(`Simulated execution: ${data.script}`, 'debug');
-                            // Mock response
-                            setTimeout(() => {
+                            isExecuting.current = false;
+                            activeRequestId.current = null;
+                            sendHeartbeat();
+                            if (socket.readyState === WebSocket.OPEN) {
                                 socket.send(JSON.stringify({
-                                    id: data.id,
-                                    type: 'complete',
-                                    result: "Mock Success",
-                                    duration: 500
+                                    id: data.id, type: 'complete',
+                                    error: 'CEP CSInterface is unavailable; execution was not started',
+                                    execution: { state: 'not_started', safe_to_retry: true },
                                 }));
-                            }, 500);
+                            }
                         }
                     }
 
@@ -292,8 +317,7 @@ export function useMCP() {
                     window.clearInterval(heartbeatTimer.current);
                     heartbeatTimer.current = null;
                 }
-                isExecuting.current = false;
-                activeRequestId.current = null;
+                // Socket closure does not cancel evalScript; preserve the busy guard.
                 // Reconnect on ANY server-side close. Keying this off
                 // code !== 1000 meant a graceful MCP server shutdown (which
                 // closes with 1000) left the panel dead until it was manually
@@ -327,8 +351,7 @@ export function useMCP() {
             window.clearTimeout(reconnectTimeout.current);
             reconnectTimeout.current = null;
         }
-        isExecuting.current = false;
-        activeRequestId.current = null;
+        // An in-flight JSX call keeps running after disconnection.
         if (ws.current) {
             ws.current.close(1000);
             ws.current = null;

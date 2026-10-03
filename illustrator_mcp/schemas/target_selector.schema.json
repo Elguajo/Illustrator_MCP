@@ -308,6 +308,20 @@
           "title": "Type",
           "type": "string"
         },
+        "document_session_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "result.document.session_id from inspect; rejects uuids from a closed or different document",
+          "title": "Document Session Id"
+        },
         "uuids": {
           "description": "Native PageItem uuids as returned by illustrator_inspect",
           "items": {

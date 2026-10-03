@@ -276,9 +276,10 @@ Each of these was observed live; none raises an error by itself.
 
 Transport
 - Illustrator's `JSON` has `stringify` but no `parse`, and `stringify` escapes only `"` and `\n`.
-  A returned string containing a backslash, tab, `\r` (Illustrator's paragraph separator) or other
-  control characters can be corrupted on the way back. Return plain data, or encode such strings
-  (for example with `encodeURIComponent`) and say so in the result.
+  The repository's host.jsx now installs its own ES3 stringify/parse codec. Return plain data
+  or an envelope through JSON.stringify; quotes, backslashes and controls survive.
+  Older installed hosts still have this defect; typed tools retain their dm1: wire encoding
+  for compatibility. Reload the updated panel and host together.
 
 Identity
 - `PageItem.uuid` is a per-document counter, renumbered in document order whenever a file is
@@ -287,6 +288,8 @@ Identity
 - `doc.getPageItemFromUuid()` ignores `doc` and resolves in `app.activeDocument`, throws on an
   unknown uuid, and returns a `GroupItem`-typed object for a `CompoundPathItem`.
 - `@mcp:id` in `item.note` survives save, close and reopen; use it across sessions.
+- Inspection adds `document.session_id`. Pass `document_session_id` to typed edits or native
+  UUID targets to refuse a reopened/different document even when names and UUIDs collide.
 
 Text
 - `textFrame.textRanges` has one range per character, not per style run; rebuild runs by comparing

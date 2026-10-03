@@ -350,6 +350,7 @@ if (report.batchReport) {{
     var _slim = {{
         ok: _br.ok,
         createdIds: _br.createdIds || [],
+        rolledBack: _br.rolledBack || 0,
         stats: _br.stats || {{}},
         warnings: _br.warnings || [],
         opSummary: [],
@@ -566,6 +567,7 @@ JSON.stringify(report);
                 envelope = make_envelope(
                     ok=False,
                     error=err,
+                    result={"formatted": formatted, "report": report_data},
                     warnings=merged_warnings,
                     diagnostics=merged_diag,
                 )

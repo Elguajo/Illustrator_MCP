@@ -12,7 +12,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from illustrator_mcp.shared import mcp
-from illustrator_mcp.tools.base import ToolInputBase, TOOL_ANNOTATIONS
+from illustrator_mcp.tools.base import DocumentSessionInput, ToolInputBase, TOOL_ANNOTATIONS
 from illustrator_mcp.tools.doc_model_tools import run_dm
 
 
@@ -59,7 +59,7 @@ _SHADOW_FIELDS = ("offset_x", "offset_y", "blur", "opacity", "blend_mode", "colo
 _EFFECT_FIELDS = _SHADOW_FIELDS + ("radius", "effect", "replace")
 
 
-class EffectsInput(ToolInputBase):
+class EffectsInput(DocumentSessionInput):
     """Input for live effects on items addressed by uuid."""
     action: Literal["apply", "remove"] = Field(
         ..., description="'apply' adds one effect; 'remove' clears every live effect",
@@ -125,6 +125,8 @@ def effects_payload(params: EffectsInput) -> dict:
         "uuids": params.uuids,
         "allow_stroke_realign": params.allow_stroke_realign,
     }
+    if params.document_session_id:
+        payload["document_session_id"] = params.document_session_id
     if params.document:
         payload["document"] = params.document
     if params.action == "apply":
@@ -241,7 +243,7 @@ _SWATCH_ACTIONS = Literal[
 ]
 
 
-class SwatchesInput(ToolInputBase):
+class SwatchesInput(DocumentSessionInput):
     """Input for swatch, swatch group and swatch library operations."""
     action: _SWATCH_ACTIONS = Field(..., description="Swatch operation")
     names: Optional[List[str]] = Field(

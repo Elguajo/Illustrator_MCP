@@ -58,6 +58,11 @@ class TestReconnect:
         assert "manualDisconnect.current = true;" in src
         assert "manualDisconnect.current = false;" in src
 
+    @pytest.mark.skipif(not (PANEL / "node_modules" / "typescript").exists(), reason="needs panel dependencies")
+    def test_busy_guard_and_recovery_against_the_real_hook(self):
+        subprocess.run(["node", str(PANEL.parent / "tests_jsx" / "test_panel_execution.js")],
+                       check=True, capture_output=True, text=True)
+
 
 # Built with chr(): a raw separator pasted into source is invisible, and inside
 # a JS regex literal it is itself a SyntaxError.

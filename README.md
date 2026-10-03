@@ -196,8 +196,14 @@ TIMEOUT=30       # Script execution timeout in seconds (default: 30)
 |---|---|---|---|
 | `WS_PORT` | `8081` | 1024 - 65535 | WebSocket port for CEP panel connection |
 | `TIMEOUT` | `30` | 1 - 300 | Script execution timeout (seconds) |
+| `ILLUSTRATOR_MCP_TOOL_PROFILE` | `all` | `all`, `core` | Startup tool discovery: all 18 tools or 10 core tools |
 
 ---
+
+Tool descriptions are compact; full documentation/examples are available through
+`illustrator://reference/tools`. The optional `core` profile requires a server restart and
+limits discovery, not permissions. See [automation result/recovery contracts](docs/MCP_AUTOMATION_CONTRACT.md)
+for document-session guards and safe timeout recovery. Reload the panel/host after updating CEP files.
 
 ## Usage
 
@@ -854,6 +860,15 @@ without a bridge, so its tools fail with connection errors. Close one client
 before using the other.
 
 ### Distributing the Panel
+
+The validated candidate is MCP `3.1.0rc1` with CEP `1.1.0` on macOS / Illustrator
+30.8.1. See [release evidence and limitations](docs/MCP_RELEASE_READINESS.md).
+The Python wheel must include JSX, templates, schemas and reference resources:
+
+```bash
+python -m pip wheel . --no-deps -w dist
+python scripts/check_wheel.py dist/illustrator_mcp-3.1.0rc1-py3-none-any.whl
+```
 
 `install-cep.sh` symlinks the source folder and turns on `PlayerDebugMode`.
 That works on your own machine and nowhere else: without debug mode Illustrator

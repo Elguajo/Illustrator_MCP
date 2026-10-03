@@ -703,6 +703,12 @@ function resolveGroundedIdTargets(doc, target) {
  * @returns {Array<PageItem>}
  */
 function resolveUuidTargets(doc, target) {
+    if (target.document_session_id && target.document_session_id !== mcpDocumentSession(doc)) {
+        groundedTargetError(ErrorCodes.R_COLLECT_FAILED,
+            "Document session mismatch. Re-inspect before using native uuids.",
+            { reason: "document_session_mismatch", expected_session: target.document_session_id,
+              active_session: mcpDocumentSession(doc) });
+    }
     if (typeof target.document !== "string" || !target.document) {
         // validatePayload checks only a top-level target; compound children
         // and SOC op targets reach this point unchecked.

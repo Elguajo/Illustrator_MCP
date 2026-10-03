@@ -8,7 +8,7 @@ system, abstraction ladder, and docstring schema.
 
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from illustrator_mcp.proxy_client import (
     execute_script_with_context,
@@ -119,6 +119,14 @@ class ToolInputBase(BaseModel):
     - str_strip_whitespace: Auto-strip whitespace from string fields
     """
     model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class DocumentSessionInput(ToolInputBase):
+    """Optional optimistic guard for typed operations on the active document."""
+    document_session_id: Optional[str] = Field(
+        None, min_length=1,
+        description="Expected result.document.session_id from inspect. Re-inspect after reopening; mismatches refuse the operation.",
+    )
 
 
 async def execute_jsx_tool(

@@ -44,6 +44,9 @@ illustrator-mcp = "illustrator_mcp.server:main"
 [tool.setuptools.packages.find]
 include = ["illustrator_mcp", "illustrator_mcp.*"]
 
+[tool.setuptools.package-data]
+illustrator_mcp = ["resources/scripts/*.jsx", "resources/scripts/*.json", "resources/templates/*.jsx", "resources/docs/*.md", "schemas/*.json"]
+
 [tool.setuptools.dynamic]
 version = {attr = "illustrator_mcp.__version__.__version__"}
 

@@ -42,6 +42,11 @@ jobs:
       - name: Tests
         run: pytest -q --no-cov
 
+      - name: Verify wheel runtime resources
+        run: |
+          python -m pip wheel . --no-deps -w dist
+          python scripts/check_wheel.py dist/illustrator_mcp-*.whl
+
       - name: Coverage
         if: matrix.python-version == '3.12'
         run: pytest -q --cov=illustrator_mcp --cov-report=term --cov-report=xml
@@ -68,7 +73,7 @@ jobs:
           node-version: "20"
 
       - name: Pure JSX tests
-        # Required by docs/ARCHITECTURE_DOCTRINE.md section 6 (Go/No-Go).
+        # Required by docs/ARCHITECTURE_DOCTRINE.md section 7 (Go/No-Go).
         # Runs the DOM-free ExtendScript modules under node; no dependencies.
         run: node tests_jsx/run_tests.js
 
@@ -88,6 +93,9 @@ jobs:
       - name: Install
         working-directory: cep-extension
         run: npm ci
+
+      - name: CEP execution recovery contract
+        run: node tests_jsx/test_panel_execution.js
 
       - name: Typecheck
         working-directory: cep-extension

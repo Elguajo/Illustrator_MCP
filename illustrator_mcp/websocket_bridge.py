@@ -396,6 +396,17 @@ class WebSocketBridge:
             return True
         return False
 
+    def _busy_error(self) -> Optional[ExecutionResponse]:
+        # macOS evalScript may block the panel's JS event loop: its onmessage
+        # guard cannot reject queued work until the current script returns.
+        # Pending entries also close the gap before the first busy heartbeat.
+        if self._panel_busy or self.registry.pending_count or self.registry.streaming_count:
+            from illustrator_mcp.result_contract import execution
+            return {"error": format_code(ErrorCode.R_BUSY,
+                "A previous script is still executing. This request was not sent to Illustrator."),
+                "execution": execution("not_started"), "panel_health": self.get_panel_health()}
+        return None
+
     async def execute_script_async(
         self, 
         script: str, 
@@ -415,7 +426,12 @@ class WebSocketBridge:
             ExecutionResponse with result or error
         """
         if not self.is_connected():
-            return create_connection_error(self.port)
+            from illustrator_mcp.result_contract import execution
+            return {**create_connection_error(self.port), "execution": execution("not_started")}
+
+        busy = self._busy_error()
+        if busy:
+            return busy
 
         # Build command info for message
         command_info = command.to_dict() if command else None
@@ -441,23 +457,31 @@ class WebSocketBridge:
 
         try:
             # Use server transport
+            self.registry.record_execution(request_id, "unknown")
             await self.server.send(message)
             logger.debug(f"Sent request {request_id} (trace: {trace_id}) to Illustrator")
 
             # Wait for future
-            return await asyncio.wait_for(future, timeout=timeout)
+            response = await asyncio.wait_for(future, timeout=timeout)
+            phase = self.registry.execution_status(request_id)
+            # Callback completion establishes execution, never successful read-back.
+            response["execution"] = phase
+            return response
 
         except asyncio.TimeoutError:
             self.registry.fail_request(request_id, TimeoutError("Timeout"))
             cmd_ctx = f" [{command.command_type}]" if command else ""
             return {"error": format_code(ErrorCode.R_TIMEOUT,
-                f"Script execution timed out after {timeout}s{cmd_ctx}")}
+                f"Script execution timed out after {timeout}s{cmd_ctx}. Do not replay: Illustrator may still be changing the document."),
+                "execution": self.registry.record_execution(request_id, "unknown"),
+                "panel_health": self.get_panel_health()}
 
         except Exception as e:
             self.registry.fail_request(request_id, e)
             cmd_ctx = f" [{command.command_type}]" if command else ""
             return {"error": format_code(ErrorCode.R_UNKNOWN,
-                f"Script execution failed{cmd_ctx}: {str(e)}")}
+                f"Script execution failed{cmd_ctx}: {str(e)}"),
+                "execution": self.registry.record_execution(request_id, "unknown")}
 
     async def execute_script_streaming(
         self, 
@@ -484,6 +508,11 @@ class WebSocketBridge:
         """
         if not self.is_connected():
             yield create_connection_error(self.port)
+            return
+
+        busy = self._busy_error()
+        if busy:
+            yield {**busy, "type": "error"}
             return
 
         # Build command info for message

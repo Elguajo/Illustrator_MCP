@@ -12,6 +12,9 @@ from typing import Any, AsyncIterator, Dict, Sequence
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, ContentBlock, TextContent
+from illustrator_mcp.config import config
+from illustrator_mcp.result_contract import add_result_evidence
+from illustrator_mcp.tool_catalog import CORE_TOOLS, compact_description
 
 logger = logging.getLogger(__name__)
 
@@ -117,12 +120,28 @@ class IllustratorFastMCP(FastMCP):
     """
 
     def tool(self, *args: Any, structured_output: bool | None = False, **kwargs: Any):
+        name = kwargs.get("name")
+        if config.tool_profile == "core" and name and name not in CORE_TOOLS:
+            return lambda fn: fn
+        if name and "description" not in kwargs:
+            description = compact_description(name)
+            if description:
+                kwargs["description"] = description
         return super().tool(*args, structured_output=structured_output, **kwargs)
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         result = await super().call_tool(name, arguments)
         if isinstance(result, dict):
             return result
+        for block in result:
+            if isinstance(block, TextContent):
+                try:
+                    envelope = json.loads(block.text)
+                except ValueError:
+                    break
+                if isinstance(envelope, dict) and "ok" in envelope and "diagnostics" in envelope:
+                    block.text = json.dumps(add_result_evidence(envelope))
+                break
         return mark_tool_error(result)
 
 
@@ -165,6 +184,31 @@ Results
 """
 
 # Create MCP server with lifespan management
+SERVER_INSTRUCTIONS += """
+Recovery and evidence
+- Pass document_session_id=<result.document.session_id> with typed edits and uuid targets.
+  It rejects a reopened or different document, even if its filename and uuids match.
+- diagnostics.execution reports not_started/running/completed/unknown. Only not_started is
+  safe to replay without reading the canvas. Timeout/disconnect after submission means unknown;
+  poll illustrator_inspect(view='execution',request_id=...) and re-inspect the document before retrying.
+- diagnostics.changes separates full/partial/unverified execution from verification.
+  completed and full never imply a visual or DOM read-back check. Rollback counts do not prove restoration.
+- Read illustrator://reference/tools for full tool documentation and examples.
+"""
+if config.tool_profile == "core":
+    SERVER_INSTRUCTIONS = """Live control of Adobe Illustrator via its CEP panel. Core startup profile.
+Inspect first; then use the specific available typed tool, execute_task for SOC operations,
+or execute_script after reading illustrator://reference/extendscript for unsupported operations.
+Use export_document(return_image=true) for visual checks; ground_object for preview identity;
+history for checkpoints. Typed bounds are canvas Y-down points; SOC x/y are artboard-relative;
+raw Illustrator DOM coordinates are Y-up.
+Pass document name and document_session_id from inspect when using native uuids.
+@mcp:id survives reopen; native uuid does not. Read diagnostics.changes and per-object failures.
+Only execution state not_started is safe to replay without inspecting. Timeout may leave edits
+running: poll inspect(view='execution',request_id=...) and inspect the canvas before recovery.
+Full tool documentation: illustrator://reference/tools. Set ILLUSTRATOR_MCP_TOOL_PROFILE=all
+and restart for the complete toolset. A profile limits discovery, not permissions.
+"""
 mcp = IllustratorFastMCP(
     "illustrator_mcp",
     instructions=SERVER_INSTRUCTIONS,
