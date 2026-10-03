@@ -64,10 +64,16 @@ registerOpHandler("group_ungroup", function (params, targets, ctx) {
         }
 
         try {
-            // Move all items out of group to parent
-            var parent = item.parent;
-            while (item.pageItems.length > 0) {
-                item.pageItems[0].move(parent, ElementPlacement.PLACEAFTER);
+            // Move every child out of the group, relative to the group itself: the old
+            // move(parent, PLACEAFTER) targeted a Layer, which only accepts PLACEATBEGINNING/
+            // PLACEATEND, so it threw for every group ("Failed to ungroup", live on 30.8.1).
+            // Front-most child first: PLACEBEFORE puts each move behind the ones already moved,
+            // so this order keeps the stacking order (checked live: a back-to-front loop
+            // reversed it).
+            var kids = [];
+            for (var k = 0; k < item.pageItems.length; k++) kids.push(item.pageItems[k]);
+            for (var m = 0; m < kids.length; m++) {
+                kids[m].move(item, ElementPlacement.PLACEBEFORE);
             }
             item.remove();
             ungrouped++;

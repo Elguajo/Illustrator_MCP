@@ -51,6 +51,8 @@ async def illustrator_export_document(params: ExportDocumentInput) -> Union[str,
       - SVG embeds only the glyphs the text uses (fontSubsetting=GLYPHSUSED). Illustrator's own
         default embeds every glyph of each font used: ~1 MB and 1-15 s for one text frame
       - return_image returns base64 image bytes as ImageContent for visual verification
+      - SVG and PDF export re-point the active document at the exported file (Illustrator behavior):
+        result.document gives the name before and after, and a plain Save would then write that format
       - Overwrites existing file at file_path (destructive to filesystem)
     """
     path = escape_path_for_jsx(params.file_path)
@@ -131,6 +133,15 @@ async def illustrator_export_document(params: ExportDocumentInput) -> Union[str,
                 diagnostics["precheck_sample_misses"] = count.get('off_items_sample', [])
         except Exception as e:
             warnings.append(f"Pre-export check failed: {e}")
+
+    if params.format in (ExportFormat.SVG, ExportFormat.PDF):
+        # Observed live on Illustrator 30.8.1: after an SVG export or a PDF saveAs the active document
+        # is the exported file (name, path, saved=True). A later Save writes SVG/PDF, not the .ai.
+        warnings.append(
+            f"The active document is now the exported {params.format.value.upper()} file; its name and path "
+            "changed (result.document shows before/after). Save As or reopen your original file before "
+            "saving; a plain Save would write this format."
+        )
 
     # Config-driven export
     export_configs = {

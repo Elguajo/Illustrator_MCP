@@ -144,6 +144,7 @@ def _build_export_pdf(path):
     body = f"""
         var file = new File("{path}");
         var opts = new PDFSaveOptions();
+        var nameBefore = doc.name;
         doc.saveAs(file, opts);
         var abIdx = doc.artboards.getActiveArtboardIndex();
         var abRect = doc.artboards[abIdx].artboardRect;
@@ -151,7 +152,8 @@ def _build_export_pdf(path):
             path: "{path}",
             format: "PDF",
             width_pt: abRect[2] - abRect[0],
-            height_pt: Math.abs(abRect[3] - abRect[1])
+            height_pt: Math.abs(abRect[3] - abRect[1]),
+            document: {{ before: nameBefore, after: doc.name, renamed: nameBefore !== doc.name }}
         }};
     """
     return wrap_script(body, "export_pdf")
@@ -468,9 +470,14 @@ def _build_trace_placed_image(marker, preset, expand):
     // 4. Apply preset (safe fallback on locale/version mismatch)
     var presetName = {preset};
     if (presetName) {{
+        // loadFromPreset() returns false for an unknown name instead of throwing (live, 30.8.1)
+        var presetLoaded = false;
         try {{
-            plugin.tracing.tracingOptions.loadFromPreset(presetName);
+            presetLoaded = plugin.tracing.tracingOptions.loadFromPreset(presetName) !== false;
         }} catch(pe) {{
+            presetLoaded = false;
+        }}
+        if (!presetLoaded) {{
             warnings.push("Preset not found: " + presetName + "; using default");
         }}
     }}
@@ -702,7 +709,11 @@ def _build_export_standard(ab_index_js, options_class, scale_opts, clip_opt,
         {clip_opt}
 
         var file = new File("{path}");
+        var nameBefore = doc.name;
         doc.exportFile(file, {export_type}, opts);
+        // SVG export re-points the active document at the exported file (name, path, saved flag),
+        // like PDF's saveAs; report it so a caller does not keep addressing the old name.
+        var nameAfter = doc.name;
 
         var abRect = doc.artboards[abIdx].artboardRect;
         var exportWidth = Math.round((abRect[2] - abRect[0]) * {scale} / 100);
@@ -714,7 +725,8 @@ def _build_export_standard(ab_index_js, options_class, scale_opts, clip_opt,
             artboard_index: abIdx,
             artboard_clipping: {artboard_clip},
             width: exportWidth,
-            height: exportHeight
+            height: exportHeight,
+            document: {{ before: nameBefore, after: nameAfter, renamed: nameBefore !== nameAfter }}
         }};
     """
     return wrap_script(body, "export_standard")

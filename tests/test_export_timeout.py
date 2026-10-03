@@ -48,3 +48,32 @@ async def test_svg_embeds_only_the_glyphs_used():
 @pytest.mark.parametrize("fmt", ["png", "jpg", "pdf"])
 async def test_other_formats_do_not_get_svg_options(fmt):
     assert "SVGFontSubsetting" not in await _script_used(fmt)
+
+
+async def _envelope(fmt: str) -> dict:
+    params = ExportDocumentInput(file_path=f"/tmp/mcp_export_env_test.{fmt}", format=fmt)
+    ok = json.dumps({"ok": True, "data": {"document": {"before": "a.ai", "after": f"x.{fmt}", "renamed": True}}})
+    with patch("illustrator_mcp.tools._export.execute_script_with_context",
+               new_callable=AsyncMock, return_value={"result": ok}):
+        return json.loads(await illustrator_export_document(params))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fmt", ["svg", "pdf"])
+async def test_svg_and_pdf_warn_that_the_document_was_re_pointed(fmt):
+    # Live on 30.8.1: after SVG export or PDF saveAs the active document IS the exported file.
+    env = await _envelope(fmt)
+    assert any("active document is now the exported" in w for w in env["warnings"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fmt", ["png", "jpg"])
+async def test_raster_export_does_not_warn(fmt):
+    assert not any("active document is now" in w for w in (await _envelope(fmt))["warnings"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fmt", ["png", "svg", "pdf"])
+async def test_export_script_reports_the_name_before_and_after(fmt):
+    script = await _script_used(fmt)
+    assert "nameBefore = doc.name" in script and "renamed: nameBefore !== " in script

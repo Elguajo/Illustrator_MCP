@@ -9,7 +9,7 @@ History before 3.1.0 was not tracked here; see `git log` for it.
 
 ### Added
 
-- **`tests_live/`: a live suite for every `illustrator_*` tool** (83 steps, macOS +
+- **`tests_live/`: a live suite for every `illustrator_*` tool** (98 steps, macOS +
   Illustrator). It simulates only the CEP panel's WebSocket hop: the exact script the server
   builds runs through `cep-extension/jsx/host.jsx` via osascript, so tool models, library
   injection, envelopes and formatting are real. Each step reads state back through an
@@ -181,8 +181,21 @@ History before 3.1.0 was not tracked here; see `git log` for it.
     applied `spec.name`. It does now. The docstring example used a `fill` parameter that
     did not exist (and was silently ignored); `fill={r, g, b}` is implemented.
   - `illustrator_export_document` timed out (R005) on SVG with live text although the file
-    was written: SVG embeds fonts, which took 3-15 s for one text frame and 40-60+ s for a
-    ten-frame document. SVG now gets 120 s (PDF keeps 60 s).
+    was written: `ExportOptionsSVG.fontSubsetting` defaults to ALLGLYPHS, so one Myriad Pro
+    text frame exported 949 KB in 1-15 s. SVG now sets `GLYPHSUSED` (3 KB in 50 ms; the
+    ten-frame test document went from 1.2 MB / 3-60 s to 10 KB / 0.4 s) and gets a 120 s
+    timeout as headroom (PDF keeps 60 s).
+  - SVG export and PDF `saveAs` re-point the active document at the exported file (name,
+    path, `saved=True`; a plain Save would then write SVG/PDF). That was silent; the result
+    now carries `document.before/after/renamed` and a warning.
+  - `illustrator_place_file(trace=True, linked=False)` always failed with "Trace target not
+    found": `embed()` replaces the PlacedItem with a RasterItem that has an empty note, and the
+    stale reference accepted the marker without error. The marker now goes to the raster.
+    An unknown `trace_preset` was silently ignored (`loadFromPreset` returns false instead of
+    throwing); it is reported as a warning now.
+  - `group_ungroup` could not ungroup anything: it moved children relative to the parent
+    Layer with `PLACEAFTER`, which Layers reject, so every group failed ("Failed to ungroup").
+    Children now move relative to the group, front-most first, keeping the stacking order.
 
 - **Fill and stroke edits on compound paths were silent no-ops.**
   `style_set_fill`, `style_set_stroke`, `style_remove_fill`,
