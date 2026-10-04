@@ -6,17 +6,13 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets AI assistants like Claude control Adobe Illustrator through natural language. Write ExtendScript via a single powerful tool, or use purpose-built tools for document I/O, state inspection, and structured queries.
 
-Forked from [jinkeda/Illustrator_MCP](https://github.com/jinkeda/Illustrator_MCP). This fork adds bridge authentication, CI, and the hardening work in `CHANGELOG.md`.
-
----
-
 ## Table of Contents
 
 - [How It Works](#how-it-works)
 - [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
+- [Quick Start](#quick-start)
+- [Runtime Configuration](#runtime-configuration)
+- [Using the Server](#using-the-server)
 - [Available Tools](#available-tools)
 - [Standard Libraries](#standard-libraries)
 - [Task Protocol & SOC Framework](#task-protocol--soc-framework)
@@ -41,7 +37,7 @@ Claude / AI Client           MCP Server (Python)            Illustrator
 1. AI calls a tool (e.g. `illustrator_execute_script`) with ExtendScript code
 2. The MCP server sends the script over WebSocket to the CEP panel
 3. The CEP panel executes it in Illustrator's ExtendScript runtime and returns the result
-4. Context tools (`get_document`) let the AI understand document state before writing scripts
+4. Context tools (`illustrator_get_document` and `illustrator_inspect`) let the AI understand document state before writing scripts
 
 ### Architecture
 
@@ -98,31 +94,51 @@ All data between layers follows two strict envelope contracts:
 | Requirement | Version |
 |---|---|
 | **Python** | 3.10+ |
+| **Node.js** | 20 LTS (used to build the CEP panel) |
 | **Adobe Illustrator** | 25.0+ (CC 2021 or later) |
 
 ---
 
-## Installation
+## Quick Start
 
-### 1. Clone & Install
+Use this path for a local developer installation. It installs an unsigned CEP
+panel in Adobe's debug mode. For a panel that can be installed on another
+machine without debug mode, use a signed `.zxp`; see
+[Distributing the Panel](#distributing-the-panel).
+
+Only one MCP client can control the panel at a time. Choose Claude Desktop,
+Claude Code, or Codex for each Illustrator session.
+
+### 1. Clone and create an environment
 
 ```bash
-git clone https://github.com/jinkeda/Illustrator_MCP.git
+git clone https://github.com/Elguajo/Illustrator_MCP.git
 cd Illustrator_MCP
-pip install -e .
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .
 ```
 
-This installs all runtime dependencies, including [Pillow](https://python-pillow.org/) for VLM preview overlays and [pyclipper](https://github.com/fonttools/pyclipper) for `path_boolean` (unite, subtract, intersect, xor). If using `uv`:
+On Windows PowerShell, run the first two commands above, then create and
+activate the environment with:
 
-```bash
-uv sync
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e .
 ```
 
-### 2. Build & Install the CEP Extension
+The package installs its runtime dependencies, including
+[Pillow](https://python-pillow.org/) for VLM preview overlays and
+[pyclipper](https://github.com/fonttools/pyclipper) for `path_boolean`.
+
+### 2. Build and install the development CEP panel
 
 ```bash
 cd cep-extension
-npm install
+npm ci
 npm run build
 cd ..
 ```
@@ -140,15 +156,15 @@ chmod +x install-cep.sh
 install-cep.bat
 ```
 
-The installer creates a symlink into Adobe's CEP extensions folder and enables debug mode. If it fails, see [Manual CEP Installation](#manual-cep-installation) below.
+The installer replaces an existing development panel, creates a symlink into
+Adobe's CEP extensions folder, and enables `PlayerDebugMode`. If it fails, see
+[Manual CEP Installation](#manual-cep-installation).
 
-### 3. Restart Illustrator
+### 3. Configure one MCP client
 
-The panel appears under **Window > Extensions > MCP Control**.
-
----
-
-## Configuration
+Follow exactly one option below. Use an absolute path to the virtual
+environment executable so a desktop application does not depend on your shell
+`PATH`.
 
 ### Claude Desktop
 
@@ -161,42 +177,78 @@ Add to your config file:
 {
   "mcpServers": {
     "illustrator": {
-      "command": "illustrator-mcp"
+      "command": "/absolute/path/to/Illustrator_MCP/.venv/bin/illustrator-mcp"
     }
   }
 }
 ```
 
-<details>
-<summary>Alternative: run via Python module</summary>
+On Windows, use the virtual-environment executable instead:
 
 ```json
 {
   "mcpServers": {
     "illustrator": {
-      "command": "python",
-      "args": ["-m", "illustrator_mcp.server"]
+      "command": "C:\\absolute\\path\\to\\Illustrator_MCP\\.venv\\Scripts\\illustrator-mcp.exe"
     }
   }
 }
 ```
 
-</details>
+### Claude Code
 
-### Environment Variables (Optional)
+The checked-in [`.mcp.json`](.mcp.json) works for a macOS/Linux checkout after
+step 1. It starts `.venv/bin/illustrator-mcp` when Claude Code opens this
+repository. On Windows, copy [`.mcp.windows.json.example`](.mcp.windows.json.example)
+to `.mcp.json` in your local checkout before opening the repository.
+
+### Codex
+
+Add the matching entry to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.illustrator]
+command = "/absolute/path/to/Illustrator_MCP/.venv/bin/illustrator-mcp"
+```
+
+On Windows, point `command` to
+`C:\\absolute\\path\\to\\Illustrator_MCP\\.venv\\Scripts\\illustrator-mcp.exe`.
+
+### 4. Start and verify
+
+1. Restart the selected MCP client so it launches the server.
+2. Restart Illustrator, then open **Window > Extensions > MCP Control**.
+3. Wait for the panel to display **Connected**.
+4. Ask the client: _"Create a new 800 × 600 document."_
+
+If the panel reports *MCP server not running*, the selected client has not yet
+started the server or its configured executable path is wrong.
+
+---
+
+## Runtime Configuration
 
 Create a `.env` file in the project root:
 
 ```env
+WS_HOST=localhost # WebSocket host (default: localhost)
 WS_PORT=8081     # WebSocket port (default: 8081)
 TIMEOUT=30       # Script execution timeout in seconds (default: 30)
+ILLUSTRATOR_MCP_TOOL_PROFILE=all # all (18 tools) or core (10 tools)
 ```
 
 | Setting | Default | Range | Description |
 |---|---|---|---|
+| `WS_HOST` | `localhost` | hostname | WebSocket bind host; keep `localhost` for the local CEP panel |
 | `WS_PORT` | `8081` | 1024 - 65535 | WebSocket port for CEP panel connection |
 | `TIMEOUT` | `30` | 1 - 300 | Script execution timeout (seconds) |
 | `ILLUSTRATOR_MCP_TOOL_PROFILE` | `all` | `all`, `core` | Startup tool discovery: all 18 tools or 10 core tools |
+| `WATCHDOG_INTERVAL` | `10` | 1 - 60 | Seconds between panel health checks |
+| `WATCHDOG_STALE_THRESHOLD` | `30` | 10 - 120 | Silence before the panel is considered disconnected |
+| `MAX_LOG_SESSIONS` | `50` | 1 - 1000 | Retained bridge session logs |
+| `MAX_LOG_AGE_DAYS` | `30` | 1 - 365 | Maximum age of bridge session logs |
+| `LOG_LEVEL` | `INFO` | logging level | Server log verbosity |
+| `MAX_MESSAGE_SIZE_MB` | `10` | 1 - 100 | Maximum WebSocket message size |
 
 ---
 
@@ -205,15 +257,16 @@ Tool descriptions are compact; full documentation/examples are available through
 limits discovery, not permissions. See [automation result/recovery contracts](docs/MCP_AUTOMATION_CONTRACT.md)
 for document-session guards and safe timeout recovery. Reload the panel/host after updating CEP files.
 
-## Usage
+## Using the Server
 
-1. **Start Claude Desktop** (or restart it) -- the MCP server launches automatically
-2. **Open Illustrator**
-3. **Open the CEP panel:** Window > Extensions > MCP Control
-4. Verify the panel shows **Connected**
-5. In Claude, try: _"Create a new 800x600 document"_
+Agents receive the server workflow during MCP initialization. They should
+inspect the active document first, use the narrowest typed tool, and verify a
+meaningful edit with an export or annotated preview. Tool documentation and
+ExtendScript guidance are lazy MCP resources; the server instructions direct an
+agent to read them only when needed.
 
-No additional servers or processes needed.
+Do not run a second configured client while one is connected: the WebSocket port
+is exclusive, and the second server cannot control Illustrator.
 
 ---
 
@@ -400,9 +453,9 @@ Handles and mirror are resolved Python-side before reaching JSX — the AI provi
 
 **Conditional operations:** `when` / `unless` guards filter targets by property predicates before execution (e.g., `when: {property: 'width', gt: 100}`).
 
-**Spatial query targets:** `within`, `nearTo`, and `outside` predicates select items by geometric region. Predicates combine as OR (union). Structured error codes (`SP01`–`SP03`) provide precise diagnostics.
+**Spatial query targets:** `within`, `nearTo`, and `outside` predicates select items by geometric region. Predicates combine as OR (union). Structured error codes (`SP001`–`SP003`) provide precise diagnostics.
 
-See [`PROTOCOL.md`](PROTOCOL.md) and [`SOC_CONTRACTS.md`](SOC_CONTRACTS.md) for full specifications.
+See [`docs/PROTOCOL.md`](docs/PROTOCOL.md) and [`docs/SOC_CONTRACTS.md`](docs/SOC_CONTRACTS.md) for full specifications.
 
 ---
 
@@ -818,7 +871,7 @@ illustrator_export_document(
 1. Ensure Illustrator is running
 2. Open the panel: **Window > Extensions > MCP Control**
 3. Check for "Connected" status; click **Connect** if disconnected
-4. Restart Claude Desktop if the issue persists (this restarts the MCP server)
+4. Restart the configured MCP client if the issue persists (this restarts the MCP server)
 
 ### CEP Panel Not Appearing
 
@@ -842,22 +895,10 @@ port up from the handshake file — no rebuild needed.
 
 ### Registering with an MCP Client
 
-The server is started by whichever MCP client you use; nothing runs on its own.
-Until a client starts it, no one is listening on the WebSocket port and the panel
-reports *MCP server not running*.
-
-`.mcp.json` in the repository root registers it for Claude Code opened in this
-directory. For Codex, add to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.illustrator]
-command = "/absolute/path/to/Illustrator_MCP/.venv/bin/illustrator-mcp"
-```
-
-Only one client can hold the bridge at a time: the WebSocket port is exclusive,
-and a second server starts but logs `Port 8081 is already in use` and runs
-without a bridge, so its tools fail with connection errors. Close one client
-before using the other.
+The server is started by the configured MCP client; it does not run by itself.
+Follow the client-specific instructions in [Quick Start](#quick-start). Until a
+client starts it, no one is listening on the WebSocket port and the panel reports
+*MCP server not running*.
 
 ### Distributing the Panel
 
@@ -917,26 +958,30 @@ invalid handshake token` (HTTP 401) or `web origin ... may not drive Illustrator
 | Code | Category | Meaning |
 |---|---|---|
 | `C001` | Connection | Illustrator not connected |
+| `C002` | Connection | Transport timed out while sending or receiving |
+| `C004` | Connection | Bridge response does not satisfy the result contract |
 | `V001` | Validation | No document open |
 | `V002` | Validation | No selection |
 | `V006` | Validation | Missing required parameter |
 | `V007` | Validation | Invalid parameter type |
-| `R005` | Runtime | Layer not found |
-| `R006` | Runtime | Element not found |
-| `S001` | Script | Syntax error |
-| `S002` | Script | Undefined variable |
+| `R005` | Runtime | Script execution timed out |
+| `R007` | Runtime | Layer not found |
+| `R008` | Runtime | Element not found |
+| `R011` | Runtime | Panel is busy with a prior request |
+| `S005` | Script | Syntax error |
+| `S006` | Script | Undefined variable/reference |
 | `G001` | Guard | Unknown guard property |
 | `G002` | Guard | Invalid comparator |
 | `G003` | Guard | Malformed guard clause |
-| `SP01` | Spatial | Missing spatial predicate |
-| `SP02` | Spatial | Invalid rect specification |
-| `SP03` | Spatial | Reference item not found |
+| `SP001` | Spatial | Missing spatial predicate |
+| `SP002` | Spatial | Invalid rect specification |
+| `SP003` | Spatial | Reference item not found |
 | `SVG001` | SVG Import | Path data too long (>50k chars) |
 | `SVG002` | SVG Import | Too many segments (>5k) |
 | `SVG003` | SVG Import | Too many subpaths (>100) |
 | `SVG004` | SVG Import | Coordinate overflow (>±100k) |
 | `SVG005` | SVG Import | Too many tokens (>50k) |
-| `R010` | Runtime | Could not parse TaskReport |
+| `R010` | Runtime | Library injection failed |
 | `Q001` | Occlusion | Opaque item covers ≥90% of artboard |
 | `Q003` | Occlusion | Background layer is topmost visible |
 | `Q004` | Occlusion | Non-normal blend full cover (warning) |
@@ -947,7 +992,7 @@ All errors include actionable recovery suggestions.
 
 If the install script fails:
 
-1. Build: `cd cep-extension && npm install && npm run build && cd ..`
+1. Build: `cd cep-extension && npm ci && npm run build && cd ..`
 2. Copy the `cep-extension` folder to:
    - **macOS:** `~/Library/Application Support/Adobe/CEP/extensions/com.illustrator.mcp.panel`
    - **Windows:** `%APPDATA%\Adobe\CEP\extensions\com.illustrator.mcp.panel`
@@ -985,7 +1030,7 @@ Illustrator_MCP/
 │   ├── errors.py                 # Structured error codes + suggestions
 │   ├── templates.py              # Reusable ExtendScript templates ({ok, data} envelope)
 │   ├── response_classification.py # Response classifier (error metadata extraction)
-│   ├── response_models.py        # Pydantic models for responses
+│   ├── result_contract.py         # External tool-result envelope
 │   ├── vlm_grounding.py          # VLM QA pipeline: hybrid grounding, hypothesis verifier, DOM diffing
 │   ├── geometry.py               # Python-side boolean geometry engine (pyclipper, Bézier flattening)
 │   ├── svgd.py                   # SVG path data parser (d attribute → geometry IR, arc→cubic)
@@ -1035,7 +1080,7 @@ Illustrator_MCP/
 │   │   ├── hooks/useMCP.ts       # WebSocket connection hook
 │   │   └── session.ts            # Authenticated bridge-session reader
 │   └── vite.config.ts
-├── tests/                        # Unit tests (pytest, 1450+ tests)
+├── tests/                        # Python regression tests
 │   ├── conftest.py               # Shared fixtures + collection-error guard
 │   ├── test_execute.py
 │   ├── test_documents.py
@@ -1068,7 +1113,8 @@ Illustrator_MCP/
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── PROTOCOL.md                # Task Protocol specification
-│   └── ROADMAP_v2.4.md
+│   ├── SOC_CONTRACTS.md           # SOC operation contracts
+│   └── MCP_AUTOMATION_CONTRACT.md # Result and recovery contracts
 ├── pyproject.toml
 ├── install-cep.sh                # macOS CEP installer
 ├── install-cep.bat               # Windows CEP installer
@@ -1082,15 +1128,20 @@ Illustrator_MCP/
 ### Running Tests
 
 ```bash
-pip install -e ".[dev]"
-pytest tests/ -v
+python -m pip install -e ".[dev]"
+python -m pytest tests/ -v
 ```
 
 Tests use mocked bridge connections -- Illustrator is not required for unit tests.
 
 ### Live Testing
 
-With Illustrator running and the CEP panel connected, use `pytest -m integration` or run `tests/live_test_phase1_3.py` directly.
+With Illustrator running and the CEP panel connected, run a live suite directly.
+The suite creates and cleans up only its own documents:
+
+```bash
+python tests_live/live_cep_contract.py --out /tmp/illustrator-mcp-live
+```
 
 ### Schema Codegen
 
@@ -1115,7 +1166,7 @@ This writes `resources/scripts/contracts.jsx` with an embedded checksum;
 6. **Fail Fast with Structured Errors** -- Typed error codes (V/R/S/C/SVG categories) with actionable recovery suggestions.
 7. **Auto-Grounding** -- SOC task results always include an annotated artboard preview, forcing the AI to see the visual state before its next action. No opt-in required.
 8. **VLM QA Cadence** -- Every 5th `execute_script` call auto-injects an annotated preview. Combined with `final_step=True`, the AI is periodically forced to visually verify and catch defects.
-9. **Canonical Tool Annotations** -- A single `TOOL_ANNOTATIONS` registry in `base.py` defines `readOnly`, `destructive`, `idempotent`, and `openWorld` hints for all 13 tools. Each docstring contains a `CONTRACT:` line that is verified against the registry by automated tests, preventing annotation drift.
+9. **Canonical Tool Annotations** -- A single `TOOL_ANNOTATIONS` registry in `base.py` defines `readOnly`, `destructive`, `idempotent`, and `openWorld` hints for all 18 tools. Each docstring contains a `CONTRACT:` line that is verified against the registry by automated tests, preventing annotation drift.
 
 ---
 

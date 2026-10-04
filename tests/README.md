@@ -5,24 +5,24 @@ This directory contains unit tests for the Illustrator MCP server.
 ## Running Tests
 
 ```bash
-# Install test dependencies
-pip install pytest pytest-asyncio
+# Install project and test dependencies
+python -m pip install -e ".[dev]"
 
 # Run all tests
-pytest tests/ -v
+python -m pytest tests/ -v
 
 # Run specific test file
-pytest tests/test_documents.py -v
+python -m pytest tests/test_documents.py -v
 
 # Run with coverage
-pip install pytest-cov
-pytest tests/ --cov=illustrator_mcp --cov-report=html
+python -m pytest tests/ --cov=illustrator_mcp --cov-report=html
 ```
 
 ## Test Structure
 
 - `test_documents.py` - Document operation tool tests
-- `test_shapes.py` - Shape drawing tool tests
-- `test_objects.py` - Object operation tool tests
-- `test_pathfinder.py` - Pathfinder operation tests
+- `test_execute.py` - Raw ExtendScript execution tests
+- `test_doc_model.py` - Document inspection and artboard tests
+- `test_automation_contract.py` - Result, recovery, and instruction contracts
+- `test_wheel_contract.py` - Built-wheel resource checks
 - `conftest.py` - Shared test fixtures

@@ -90,10 +90,10 @@ echo  Installation Complete!
 echo =============================================
 echo.
 echo Next steps:
-echo 1. Start the proxy-server: cd proxy-server ^&^& npm install ^&^& node index.js
+echo 1. Restart your configured MCP client (Claude Desktop, Claude Code, or Codex)
 echo 2. Open Adobe Illustrator
 echo 3. Go to Window ^> Extensions ^> MCP Control
-echo 4. Click "Connect" in the panel
+echo 4. Wait for the panel to show Connected
 echo.
 echo To debug the panel, open Chrome and navigate to:
 echo   http://localhost:8088
