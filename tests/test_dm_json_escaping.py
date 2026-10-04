@@ -1,13 +1,9 @@
 """Typed-tool results must survive the production serialization chain.
 
-Measured live on Illustrator 30.8.1 (see the WIRE FORMAT note in
-doc_model_tools.py): the native ``JSON`` object has ``stringify`` but no
-``parse``, and its ``stringify`` escapes only '"' and "\\n" (tab, "\\r", other
-control characters, U+2028/U+2029 and the backslash come out raw).
-host.jsx's envelope passthrough needs ``JSON.parse``, so it never fires and
-every returned string is stringified a second time; the CEP panel's strict
-``JSON.parse`` then rejected any result holding a quote, a backslash or a
-control character: a frame with two paragraphs, or text with "quotes".
+Illustrator 30.8.1 exposes partial native JSON (no parse; incomplete escaping).
+The production host now replaces it with its ES3 codec. Typed dm1 wire results
+remain compatible with older installed hosts, while ordinary raw script data
+and envelope passthrough must survive the repaired serialization chain.
 
 This test runs the generated script and the real host.jsx ``executeScript``
 under a ``JSON`` that behaves like Illustrator's, parses the panel's result
@@ -66,8 +62,7 @@ def _panel_result(call: str, payload: dict) -> str:
 var app = {{ name: "Illustrator", version: "30.8.1" }};
 {_ILLUSTRATOR_JSON}
 {HOST}
-// host.jsx only installs a polyfill when JSON is undefined, so the Illustrator
-// object above stays in place, exactly as in production.
+// host.jsx installs its own codec even when partial native JSON exists.
 var hostOut = mcp_handle_request({json.dumps({"script": script}, ensure_ascii=True)});
 process.stdout.write(hostOut);
 """
@@ -77,8 +72,8 @@ process.stdout.write(hostOut);
     return panel["data"]
 
 
-def test_the_old_serialization_really_breaks_the_panel():
-    """Proves the harness reproduces the defect: a bare JSON.stringify result."""
+def test_host_repairs_partial_native_json_for_bare_script_results():
+    """Regression: quoted text survives with Illustrator's partial native JSON."""
     harness = f"""
 var app = {{ name: "Illustrator", version: "30.8.1" }};
 {_ILLUSTRATOR_JSON}
@@ -86,8 +81,7 @@ var app = {{ name: "Illustrator", version: "30.8.1" }};
 process.stdout.write(mcp_handle_request({json.dumps({"script": '(function () { return JSON.stringify({ t: "say \\"hi\\"" }); })()'})}));
 """
     out = subprocess.run(["node", "-e", harness], check=True, capture_output=True, text=True).stdout
-    with pytest.raises(json.JSONDecodeError):
-        json.loads(out)
+    assert json.loads(json.loads(out)["data"]) == {"t": 'say "hi"'}
 
 
 def test_result_with_hostile_text_round_trips_through_host_and_panel():
@@ -114,7 +108,7 @@ def test_keys_numbers_and_empty_values_survive():
 def test_request_error_message_round_trips():
     wire = _panel_result(
         '(function () { var e = new Error("bad \\"name\\"\\rx"); e.dmUserError = true; throw e; })()', {})
-    assert decode_dm_wire(wire) == {"__dm_request_error": 'bad "name"\rx'}
+    assert decode_dm_wire(wire) == {"__dm_request_error": 'bad "name"\rx', "__dm_not_started": False}
 
 
 def test_unwrap_dm_response_finds_the_wire_string_in_a_bridge_response():
@@ -123,3 +117,34 @@ def test_unwrap_dm_response_finds_the_wire_string_in_a_bridge_response():
     assert unwrap_dm_response(response) == {"contents": TEXT}
     assert unwrap_dm_response({"result": {"ok": True, "data": {"plain": 1}}}) is None
     assert decode_dm_wire({"already": "decoded"}) == {"already": "decoded"}
+
+
+def _host_script(script: str) -> dict:
+    harness = _ILLUSTRATOR_JSON + HOST + "\nprocess.stdout.write(mcp_handle_request(" + json.dumps({"script": script}) + "));"
+    out = subprocess.run(["node", "-e", harness], check=True, capture_output=True, text=True).stdout
+    return json.loads(out)
+
+
+def test_plain_returned_data_keeps_unknown_keys_and_hostile_text():
+    data = {TEXT: TEXT, "nested": {"hasOwnProperty": 7, "length": 3, "ids": ["uuid-1"]}}
+    assert _host_script("(" + json.dumps(data, ensure_ascii=True) + ")") == {"ok": True, "data": data}
+
+
+def test_host_codec_handles_array_holes_nonfinite_numbers_and_undefined_fields():
+    value = _host_script('JSON.stringify({ok:true,data:{a:[,undefined,function(){},NaN,Infinity], u:undefined, f:function(){}}})')
+    assert value == {"ok": True, "data": {"a": [None, None, None, None, None]}}
+
+
+def test_cyclic_json_is_a_script_failure_with_a_parseable_error():
+    value = _host_script('(function(){var x={};x.x=x;return JSON.stringify(x);})()')
+    assert value["ok"] is False
+    assert "Cyclic" in value["error"]["message"]
+
+
+@pytest.mark.parametrize("source", [
+    '{"x":1,}', '[1,]', '01', '+1', 'undefined', '{x:1}', '"raw\nnewline"',
+    '{"__proto__":{}}', '(function(){global.attack=true;return 1;})()',
+])
+def test_host_parser_rejects_non_json_without_evaluating_it(source):
+    script = '(function(){global.attack=false;try {JSON.parse(' + json.dumps(source) + ');return false;}catch(e){return !global.attack;}})()'
+    assert _host_script(script) == {"ok": True, "data": True}

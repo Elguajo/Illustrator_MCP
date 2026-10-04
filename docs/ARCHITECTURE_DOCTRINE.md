@@ -104,10 +104,16 @@ Schemas are **compiled artifacts**, not hand-written.
 
 Tools built on `dm_script` / `run_dm` (`doc_model_tools.py`) return their result through
 `__dmWire`: `dm1:` + JSON from our own serializer with `%`, `\` and `"` percent-encoded.
-Never return `JSON.stringify(...)` from such a tool: Illustrator's native `JSON` has no `parse`
-and leaves backslashes and control characters unescaped, so host.jsx re-serialization produces
-a string the panel cannot parse. Python decodes with `decode_dm_wire` / `unwrap_dm_response`.
-`tests/test_dm_json_escaping.py` pins this against the real host.jsx.
+Keep this wire format for compatibility with older installed panels/hosts. The repository's
+`host.jsx` now installs an ES3 codec (`mcpJsonStringify` / `mcpJsonParse`) for both host
+envelopes and injected scripts, independent of Illustrator's partial native `JSON`.
+Python still decodes with `decode_dm_wire` / `unwrap_dm_response`.
+`tests/test_dm_json_escaping.py` pins this against the real host.jsx, including partial native JSON.
+
+Inspection results carry `document.session_id`, an opaque identity held in `$.global` for the
+open Document. Pass it as optional `document_session_id` to typed operations or UUID target
+selectors. A mismatch refuses the operation before that operation's writes. In a SOC batch,
+earlier operations may already have changed the document; this guard does not roll them back.
 
 ---
 

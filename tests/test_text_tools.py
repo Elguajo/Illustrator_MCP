@@ -294,7 +294,8 @@ class TestReplace:
 
     def test_results_name_the_document(self):
         res = jsx_value(LIBS, HELLO, 'dtReplaceText(doc, {find: "big", replace: "x"})')
-        assert res["document"] == {"name": "test.ai", "path": None}
+        assert res["document"]["name"] == "test.ai" and res["document"]["path"] is None
+        assert res["document"]["session_id"].startswith("doc-")
 
     def test_empty_find_is_a_request_error(self):
         res = run_jsx(LIBS, HELLO, 'dtReplaceText(doc, {find: "", replace: "x"})')

@@ -35,3 +35,5 @@ class ExecutionResponse(TypedDict, total=False):
     trace_id: str
     elapsed_ms: float
     command: str
+    execution: Dict[str, Any]
+    panel_health: Dict[str, Any]

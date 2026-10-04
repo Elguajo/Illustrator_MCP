@@ -15,7 +15,7 @@ from pydantic import Field, model_validator
 
 from illustrator_mcp.errors import make_envelope
 from illustrator_mcp.shared import mcp
-from illustrator_mcp.tools.base import ToolInputBase, execute_jsx_tool, TOOL_ANNOTATIONS
+from illustrator_mcp.tools.base import DocumentSessionInput, ToolInputBase, execute_jsx_tool, TOOL_ANNOTATIONS
 
 _INCLUDES = ["doc_model"]
 
@@ -27,19 +27,12 @@ _NO_DOC_GUARD = (
 
 _REQUEST_ERROR_KEY = "__dm_request_error"
 
-# WIRE FORMAT. Measured live on Illustrator 30.8.1: the native JSON object has
-# stringify but no parse, and its stringify escapes only '"' and "\n" (tab, "\r",
-# other control characters, U+2028/U+2029 and the backslash itself come out
-# raw, so text such as a\b is silently corrupted). host.jsx's "already an
-# envelope" passthrough needs JSON.parse, so it never fires: every returned
-# string is stringified a second time, and the CEP panel's strict JSON.parse
-# then rejects any result whose text holds a quote, a backslash or a control
-# character (a text frame with two paragraphs, a replacement containing
-# "quotes"). So results leave ExtendScript as "dm1:" + compact JSON built by
-# our own serializer (__dmJson) with every '%', backslash and '"'
-# percent-encoded. That string holds no quote, backslash or control
-# character, so host.jsx's serialization is the identity whether or not it is
-# ever fixed. decode_dm_wire() undoes it.
+# WIRE FORMAT. Older installed Illustrator hosts use partial native JSON:
+# no parse, and stringify corrupts backslashes/control characters. The repo's
+# host.jsx now owns its codec, but typed tools keep dm1 for those older hosts.
+# __dmJson produces compact JSON; __dmWire percent-encodes %, backslash and
+# quote so even a legacy outer serializer leaves the payload intact.
+# decode_dm_wire() reverses this on the Python side.
 _WIRE_PREFIX = "dm1:"
 _WIRE_JS = r"""function __dmQuote(s) {
   return '"' + s.replace(/[\\"\x00-\x1f\x7f-\uffff]/g, function (c) {
@@ -121,10 +114,12 @@ def dm_script(call: str, payload: dict, *, needs_doc: bool = True) -> str:
         lines.append(_NO_DOC_GUARD)
         lines.append("var doc = app.activeDocument;")
     lines.append("try {")
+    if needs_doc:
+        lines.append("if (P.document_session_id) mcpCheckDocumentSession(doc, P.document_session_id);")
     lines.append(f"return __dmWire({call});")
     lines.append("} catch (e) {")
     lines.append(
-        f"if (e && e.dmUserError) {{ return __dmWire({{ {_REQUEST_ERROR_KEY}: String(e.message) }}); }}"
+        f"if (e && e.dmUserError) {{ return __dmWire({{ {_REQUEST_ERROR_KEY}: String(e.message), __dm_not_started: e.mcpNotStarted === true }}); }}"
     )
     lines.append("throw e;")
     lines.append("}")
@@ -170,6 +165,7 @@ async def run_dm(
         return make_envelope(
             ok=False,
             error={
+                "safe_to_retry": result.get("__dm_not_started") is True,
                 "code": "V011",
                 "message": result[_REQUEST_ERROR_KEY],
                 "suggestions": suggestions or [
@@ -178,23 +174,28 @@ async def run_dm(
                 ],
             },
             warnings=env.get("warnings") or [],
-            diagnostics=env.get("diagnostics"),
+            diagnostics={
+                **(env.get("diagnostics") or {}),
+                **({"execution": {"state": "not_started", "safe_to_retry": True}}
+                   if result.get("__dm_not_started") else {}),
+            },
         )
     return raw
 
 
 # ==================== illustrator_inspect ====================
 
-class InspectInput(ToolInputBase):
+class InspectInput(DocumentSessionInput):
     """Input for progressive document inspection."""
-    view: Literal["structure", "artboard", "selection", "details"] = Field(
+    view: Literal["structure", "artboard", "selection", "details", "execution"] = Field(
         "structure",
         description=(
             "'structure': layer/group tree. 'artboard': everything overlapping one artboard, "
             "across layers. 'selection': current selection. 'details': appearance, text and "
-            "geometry for specific uuids."
+            "geometry for specific uuids. 'execution': bridge health/request status without running JSX."
         ),
     )
+    request_id: Optional[int] = Field(None, ge=1, description="view='execution': request to look up (default: latest); no JSX is run")
     uuids: Optional[List[str]] = Field(
         None,
         description="PageItem uuids. Start nodes for 'structure'; required for 'details'.",
@@ -255,7 +256,9 @@ async def illustrator_inspect(params: InspectInput) -> str:
       uuid can name a different object) and numbers collide across open
       documents. Re-inspect after a reopen or document switch; 'mcp_id'
       survives save, close and reopen. Every result names its 'document'
-      {name, path}. Layers have no uuid; they are identified by 'layer_path'.
+      {name, path, session_id}. Pass document_session_id=session_id with edits
+      and UUID targets to reject stale handles even when filenames match.
+      Layers have no uuid; they are identified by 'layer_path'.
 
     COORDINATE SYSTEM:
       - bounds are canvas-global points, Y-down: [left, top, right, bottom]
@@ -274,6 +277,19 @@ async def illustrator_inspect(params: InspectInput) -> str:
         {"type": "uuid", "uuids": [...], "document": result.document.name}; the task
         fails instead of acting if another document has become active
     """
+    if params.view == "execution":
+        from illustrator_mcp.runtime import get_runtime
+        bridge = get_runtime().get_bridge()
+        phase = bridge.registry.execution_status(params.request_id)
+        health = bridge.get_panel_health()
+        if (phase and phase.get("state") == "unknown" and health.get("busy")
+                and not health.get("stale") and health.get("active_request_id") == phase.get("request_id")):
+            phase = {**phase, "state": "running", "safe_to_retry": False}
+        return make_envelope(ok=True, result={
+            "connected": bridge.is_connected(), "execution": phase, "panel_health": health,
+            "history_limit": 64,
+            "recovery": "Status is transport evidence only. Re-inspect artwork before replaying an uncertain mutation.",
+        }, diagnostics={"execution": {"state": "not_started", "safe_to_retry": True}})
     payload = params.model_dump(exclude_none=True)
     return await run_dm(
         f"dmWithDocument(doc, {_VIEW_CALLS[params.view]})",
@@ -328,7 +344,7 @@ _ANCHORS = Literal[
 ]
 
 
-class ArtboardsInput(ToolInputBase):
+class ArtboardsInput(DocumentSessionInput):
     """Input for artboard operations."""
     action: Literal["list", "presets", "create", "update", "delete", "activate", "fit"] = Field(
         ..., description="Artboard operation",
@@ -425,7 +441,8 @@ async def illustrator_artboards(params: ArtboardsInput) -> str:
         return make_envelope(
             ok=True,
             result={"unit": "pt", "presets": presets},
-            diagnostics={"tool": _ARTBOARDS_NAME, "command": "artboards_presets"},
+            diagnostics={"tool": _ARTBOARDS_NAME, "command": "artboards_presets",
+                         "execution": {"state": "not_started", "safe_to_retry": True}},
         )
 
     payload = params.model_dump(exclude_none=True)

@@ -43,6 +43,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "illustrator_mcp" / "resources" / "scripts"
 
 _FIXTURE = r"""
+var $ = { global: {} };
+var app = { documents: [] };
 function E(name) { return { typename: name, toString: function () { return name; } }; }
 var BlendModes = { NORMAL: E("BlendModes.NORMAL"), MULTIPLY: E("BlendModes.MULTIPLY") };
 var ColorModel = { SPOT: E("ColorModel.SPOT"), PROCESS: E("ColorModel.PROCESS"), REGISTRATION: E("ColorModel.REGISTRATION") };
@@ -223,6 +225,7 @@ def _run(expr: str, spec: dict | None = None, *, libs=("polyfills", "mcp_id", "d
 {src}
 {prelude}
 var doc = build({json.dumps(spec or {"layers": []})});
+app.documents = [doc];
 try {{
   console.log(JSON.stringify({{ ok: true, value: (function () {{ return {expr}; }})() }}));
 }} catch (e) {{

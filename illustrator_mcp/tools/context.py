@@ -112,6 +112,16 @@ def _generate_library_catalog() -> str:
 
 # ==================== MCP Resources ====================
 
+@mcp.resource("illustrator://reference/tools")
+async def tool_reference_resource() -> str:
+    """Full documentation/examples, loaded only when needed."""
+    tools = await mcp.list_tools()
+    sections = []
+    for tool in tools:
+        implementation = mcp._tool_manager.get_tool(tool.name)
+        sections.append("## " + tool.name + "\n\n" + (implementation.fn.__doc__ or tool.description or ""))
+    return "# Illustrator tool reference\n\n" + "\n\n".join(sections)
+
 @mcp.resource("illustrator://reference/extendscript")
 def extendscript_reference_resource() -> str:
     """Static ExtendScript scripting reference (cached by client)."""
@@ -282,5 +292,4 @@ def _get_scripting_reference() -> str:
         return _REFERENCE_PATH.read_text(encoding='utf-8')
     except FileNotFoundError:
         return "Error: ExtendScript reference file not found."
-
 

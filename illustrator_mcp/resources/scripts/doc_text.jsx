@@ -58,6 +58,12 @@ function dtCheckDocument(doc, P) {
 /** Every text result names its document. */
 function dtResult(doc, result) {
     result.document = dmDocumentRef(doc);
+    result.verification = {
+        method: "dom_read_back", scope: "successful_text_operations",
+        status: result.dry_run ? "not_performed" : "performed",
+        checked_count: result.dry_run ? 0 : result.success_count,
+        failed_objects: result.failed_objects || []
+    };
     return result;
 }
 

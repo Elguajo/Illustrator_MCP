@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "illustrator_mcp" / "resources" / "scripts"
 
 FIXTURE = r"""
+var $ = { global: {} };
 var FONTS = {};          // installed: name -> record
 var PLACEHOLDERS = {};   // missing but registered: name -> record
 function fontObj(name, family, style) { return { name: name, family: family || name, style: style || "Regular", typename: "TextFont" }; }
@@ -35,7 +36,7 @@ function useFont(name) {
   throw new Error("fixture: unknown font " + name);
 }
 Object.defineProperty(FONTS, "__used", { value: {}, enumerable: false });
-var app = { textFonts: { getByName: function (n) {
+var app = { documents: [], textFonts: { getByName: function (n) {
   if (FONTS.hasOwnProperty(n)) return FONTS[n];
   if (PLACEHOLDERS.hasOwnProperty(n)) return PLACEHOLDERS[n];
   throw new Error("No such element");
@@ -328,6 +329,7 @@ def run_jsx(libs: list[str], spec: dict, expr: str) -> dict:
 {FIXTURE}
 {src}
 var doc = build({json.dumps(spec)});
+app.documents = [doc];
 try {{
   console.log(JSON.stringify({{ ok: true, value: (function () {{ return {expr}; }})() }}));
 }} catch (e) {{

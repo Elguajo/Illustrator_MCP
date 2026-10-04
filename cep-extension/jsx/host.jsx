@@ -5,36 +5,115 @@
  * the bridge between the CEP panel JavaScript and Illustrator's DOM.
  */
 
-// JSON polyfill for ExtendScript (which lacks native JSON support)
-if (typeof JSON === 'undefined') {
-    JSON = {
-        stringify: function (obj) {
-            var t = typeof obj;
-            if (t !== 'object' || obj === null) {
-                if (t === 'string') return '"' + obj.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"';
-                if (t === 'number' || t === 'boolean') return String(obj);
-                if (obj === null) return 'null';
-                return undefined;
-            }
-            var n, v, json = [], arr = (obj instanceof Array);
-            for (n in obj) {
-                if (!obj.hasOwnProperty(n)) continue;
-                v = obj[n];
-                t = typeof v;
-                if (t === 'undefined' || t === 'function') continue;
-                if (t === 'string') v = '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"';
-                else if (t === 'object' && v !== null) v = JSON.stringify(v);
-                else if (t === 'number' || t === 'boolean') v = String(v);
-                else if (v === null) v = 'null';
-                json.push((arr ? '' : '"' + n + '":') + v);
-            }
-            return (arr ? '[' : '{') + json.join(',') + (arr ? ']' : '}');
-        },
-        parse: function (str) {
-            return eval('(' + str + ')');
+/** MCP-owned JSON codec. ES3; independent of Illustrator's partial JSON. */
+function mcpJsonStringify(value) {
+    var stack = [];
+    function quote(s) {
+        return '"' + s.replace(/[\\"\x00-\x1f\x7f-\uffff]/g, function (c) {
+            if (c === '"') return '\\"';
+            if (c === "\\") return "\\\\";
+            var h = c.charCodeAt(0).toString(16);
+            return "\\u" + "0000".substring(h.length) + h;
+        }) + '"';
+    }
+    function encode(v) {
+        var t = typeof v, i, k, part, parts = [], arr;
+        if (v === null) return "null";
+        if (t === "string") return quote(v);
+        if (t === "number") return isFinite(v) ? String(v) : "null";
+        if (t === "boolean") return String(v);
+        if (t !== "object") return undefined;
+        for (i = 0; i < stack.length; i++) {
+            if (stack[i] === v) throw new Error("Cyclic JSON value");
         }
-    };
+        stack.push(v);
+        arr = v instanceof Array;
+        if (arr) {
+            for (i = 0; i < v.length; i++) {
+                part = encode(v[i]);
+                parts.push(part === undefined ? "null" : part);
+            }
+        } else {
+            for (k in v) {
+                if (!Object.prototype.hasOwnProperty.call(v, k)) continue;
+                part = encode(v[k]);
+                if (part !== undefined) parts.push(quote(String(k)) + ":" + part);
+            }
+        }
+        stack.pop();
+        return (arr ? "[" : "{") + parts.join(",") + (arr ? "]" : "}");
+    }
+    return encode(value);
 }
+
+// Parse without eval: only JSON grammar is accepted, including in passthrough.
+function mcpJsonParse(source) {
+    var s = String(source), at = 0;
+    function fail() { throw new Error("Invalid JSON at " + at); }
+    function space() { while (/[ \t\r\n]/.test(s.charAt(at)) && at < s.length) at++; }
+    function string() {
+        var out = "", c, esc, hex;
+        at++;
+        while (at < s.length) {
+            c = s.charAt(at++);
+            if (c === '"') return out;
+            if (c.charCodeAt(0) < 32) fail();
+            if (c !== "\\") { out += c; continue; }
+            esc = s.charAt(at++);
+            if (esc === "u") {
+                hex = s.substr(at, 4);
+                if (!/^[0-9a-fA-F]{4}$/.test(hex)) fail();
+                out += String.fromCharCode(parseInt(hex, 16)); at += 4;
+            } else if (esc === '"' || esc === "\\" || esc === "/") out += esc;
+            else if (esc === "b") out += "\b";
+            else if (esc === "f") out += "\f";
+            else if (esc === "n") out += "\n";
+            else if (esc === "r") out += "\r";
+            else if (esc === "t") out += "\t";
+            else fail();
+        }
+        fail();
+    }
+    function value() {
+        space();
+        var c = s.charAt(at), out, key, match, close;
+        if (c === '"') return string();
+        if (c === "[" || c === "{") {
+            out = c === "[" ? [] : {}; close = c === "[" ? "]" : "}"; at++; space();
+            if (s.charAt(at) === close) { at++; return out; }
+            while (true) {
+                if (c === "{") {
+                    if (s.charAt(at) !== '"') fail();
+                    key = string(); space();
+                    if (s.charAt(at++) !== ":") fail();
+                    // Never alter the prototype of a parsed object.
+                    if (key === "__proto__") fail();
+                    out[key] = value();
+                } else out.push(value());
+                space();
+                if (s.charAt(at) === close) { at++; return out; }
+                if (s.charAt(at++) !== ",") fail();
+                space();
+            }
+        }
+        match = /^(true|false|null|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)/.exec(s.substring(at));
+        if (!match) fail();
+        at += match[0].length;
+        if (match[0] === "true") return true;
+        if (match[0] === "false") return false;
+        if (match[0] === "null") return null;
+        return Number(match[0]);
+    }
+    var result = value(); space();
+    if (at !== s.length) fail();
+    return result;
+}
+
+// Use the same codec for host envelopes and injected/user scripts. Keep the
+// JSON object identity: libraries may have retained a reference to it.
+if (typeof JSON === "undefined") JSON = {};
+JSON.stringify = mcpJsonStringify;
+JSON.parse = mcpJsonParse;
 
 /**
  * Wrap a user script with an iteration safety guard.
@@ -205,7 +284,7 @@ function convertToPlainObject(obj, depth) {
     }
 
     // Handle arrays
-    if (obj instanceof Array || (obj.length !== undefined && typeof obj.length === 'number')) {
+    if (obj instanceof Array || (obj.typename && typeof obj.length === 'number')) {
         var arr = [];
         var len = Math.min(obj.length, 100); // Limit array size
         for (var i = 0; i < len; i++) {
@@ -220,6 +299,15 @@ function convertToPlainObject(obj, depth) {
 
     // Handle Illustrator objects - extract common properties
     var result = {};
+    // Preserve ordinary data; project native DOM objects below to bound parent links.
+    if (!obj.typename) {
+        for (var key in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, key) && typeof obj[key] !== 'function') {
+                result[key] = convertToPlainObject(obj[key], depth + 1);
+            }
+        }
+        return result;
+    }
 
     // Common properties to extract
     var props = ['name', 'typename', 'width', 'height', 'left', 'top',
@@ -242,7 +330,11 @@ function convertToPlainObject(obj, depth) {
     }
 
     // If no properties were extracted, try to get a string representation
-    if (Object.keys(result).length === 0) {
+    var hasProperties = false;
+    for (var key in result) {
+        if (Object.prototype.hasOwnProperty.call(result, key)) { hasProperties = true; break; }
+    }
+    if (!hasProperties) {
         try {
             result = String(obj);
         } catch (e) {

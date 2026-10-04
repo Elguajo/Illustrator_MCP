@@ -136,6 +136,10 @@ class UuidTarget(BaseModel):
     skipped.
     """
     type: Literal["uuid"] = "uuid"
+    document_session_id: Optional[str] = Field(
+        None, min_length=1,
+        description="result.document.session_id from inspect; rejects uuids from a closed or different document",
+    )
     uuids: List[str] = Field(
         ...,
         min_length=1,

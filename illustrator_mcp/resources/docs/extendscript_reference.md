@@ -1,8 +1,13 @@
 # Illustrator ExtendScript Quick Reference
 
 ## Coordinate System
-- Origin: Top-left of artboard
-- Y-axis: NEGATIVE downward (use -y for visual y position)
+- The DOM is Y-up: y grows upward. `artboardRect` is `[left, top, right, bottom]` with top > bottom.
+- An artboard does not have to start at y = 0: a new 600x400 document has `[0, 400, 600, 0]`.
+- Visual position (x, y) measured from an artboard's top-left:
+  `var r = doc.artboards[i].artboardRect; item.position = [r[0] + x, r[1] - y];`
+- Typed tools (`illustrator_inspect`, `illustrator_artboards`, ...) report canvas-global Y-down
+  bounds: `[left, -top_dom, right, -bottom_dom]`. Convert back with `y_dom = -y`.
+- `illustrator_execute_task` element ops take x, y relative to the active artboard's top-left, Y-down.
 - Units: Points (1 pt = 1/72 inch)
 
 ## Common Patterns
@@ -87,7 +92,8 @@ gradient.type = GradientType.RADIAL;
 ```javascript
 var tf = doc.textFrames.add();
 tf.contents = "Hello World";
-tf.position = [x, -y];  // Note: -y for visual position
+var r = doc.artboards[0].artboardRect;
+tf.position = [r[0] + x, r[1] - y];  // visual (x, y) from the artboard top-left
 
 // Style text
 tf.textRange.characterAttributes.size = 12;
@@ -260,9 +266,54 @@ title.move(cardBg, ElementPlacement.PLACEBEFORE);  // title in front of bg
 - Using positive Y for downward (should be negative)
 - Using ctx.rect() instead of pathItems.rectangle()
 - Forgetting to set filled/stroked properties
-- Not using -y in position arrays
+- Placing at `[x, -y]` without the artboard's left/top offset (see Coordinate System)
 - Forgetting to expand live effects before export
 - **Exceeding ~8000 points in setEntirePath()** — Illustrator crashes with 'Illegal Argument'. Use the `generative` library's `decimatePoints()` to auto-clamp.
+
+## Verified Traps (Illustrator 30.8.1)
+
+Each of these was observed live; none raises an error by itself.
+
+Transport
+- Illustrator's `JSON` has `stringify` but no `parse`, and `stringify` escapes only `"` and `\n`.
+  The repository's host.jsx now installs its own ES3 stringify/parse codec. Return plain data
+  or an envelope through JSON.stringify; quotes, backslashes and controls survive.
+  Older installed hosts still have this defect; typed tools retain their dm1: wire encoding
+  for compatibility. Reload the updated panel and host together.
+
+Identity
+- `PageItem.uuid` is a per-document counter, renumbered in document order whenever a file is
+  opened; after an edit plus reopen the same uuid can name a different object. Two open documents
+  can hold the same uuid. `duplicate()` gets a new one. Layers and artboards have none.
+- `doc.getPageItemFromUuid()` ignores `doc` and resolves in `app.activeDocument`, throws on an
+  unknown uuid, and returns a `GroupItem`-typed object for a `CompoundPathItem`.
+- `@mcp:id` in `item.note` survives save, close and reopen; use it across sessions.
+- Inspection adds `document.session_id`. Pass `document_session_id` to typed edits or native
+  UUID targets to refuse a reopened/different document even when names and UUIDs collide.
+
+Text
+- `textFrame.textRanges` has one range per character, not per style run; rebuild runs by comparing
+  neighbours. In the continuation frame of a threaded story it is indexed by story position
+  (lower indices throw "The specified text range is invalid"); read through `story.textRanges`.
+- `story.characters[i]` with `.length = n` addresses n characters; assigning `.contents` gives the
+  new text the attributes of the first character.
+- `app.textFonts.getByName()` does not throw for a missing font: Illustrator registers a
+  placeholder. A run in a missing font carries a subset-prefixed family such as `XPUYQY+Name`.
+- Composed `lines` cover only the visible text; anything after the last line is overset.
+  The last frame of a thread reports itself as `nextFrame`; `nextFrame`/`previousFrame` throw for
+  point and path text.
+- `createOutline()` returns a `GroupItem`, drops the frame's name and note, and the frame's uuid is
+  gone; copy name and note onto the group yourself.
+- In a CMYK document an assigned RGB color is converted; read it back before comparing.
+
+Effects, swatches, files
+- `applyEffect()` accepts an unknown effect name silently; malformed XML throws. Effects cannot be
+  read back from script. Prefer `illustrator_effects`.
+- `swatch.parent` is always the document (group membership only via `getAllSwatches()`); duplicate
+  swatch names are accepted; removing `[None]` or `[Registration]` is a silent no-op.
+- `app.open` refuses `.ase`. Opening an `.ai` swatch library with stale links shows a modal dialog
+  unless `app.userInteractionLevel = UserInteractionLevel.DONTDISPLAYALERTS`.
+- `PlacedItem.file` throws "There is no file associated with this item" for a missing link.
 
 ## Custom Paths and Polylines
 ```javascript

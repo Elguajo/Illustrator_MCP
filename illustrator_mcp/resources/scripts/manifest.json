@@ -457,7 +457,9 @@
                 "setMcpId",
                 "removeIdFromNote",
                 "resolvePageItemByUuid",
-                "ownerDocumentOf"
+                "ownerDocumentOf",
+                "mcpDocumentSession",
+                "mcpCheckDocumentSession"
             ],
             "description": "MCP ID utilities: extraction, assignment, note manipulation, and targeted index removal"
         },

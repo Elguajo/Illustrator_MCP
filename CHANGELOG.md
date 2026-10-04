@@ -9,6 +9,14 @@ History before 3.1.0 was not tracked here; see `git log` for it.
 
 ### Added
 
+- **Server `instructions`**, sent at MCP initialize: which tool to use for which
+  job (typed tool, `execute_task` op, raw script last), uuid vs `@mcp:id`
+  identity, the three coordinate spaces, and how to read results. A test fails
+  when a registered tool is missing from them.
+- **`illustrator://reference/extendscript` gains "Verified Traps"**: the
+  ExtendScript behaviours observed live on 30.8.1 (transport, uuid lifetime,
+  text ranges, missing fonts, outlines, effects, swatches, links), so raw
+  scripts can avoid them. `execute_script` points at the resource.
 - **`tests_live/`: a live suite for every `illustrator_*` tool** (101 steps, macOS +
   Illustrator). It simulates only the CEP panel's WebSocket hop: the exact script the server
   builds runs through `cep-extension/jsx/host.jsx` via osascript, so tool models, library
@@ -172,6 +180,20 @@ History before 3.1.0 was not tracked here; see `git log` for it.
 
 ### Fixed
 
+- **Raw-script coordinate guidance was wrong for most documents.** The
+  `execute_script` description and the ExtendScript reference said visual
+  (x, y) maps to `position = [x, -y]`, which holds only when the artboard's top
+  is at y = 0; a new 600x400 document has artboard rect `[0, 400, 600, 0]`. Both
+  now give `[r[0] + x, r[1] - y]` from `artboardRect`.
+- **Tool failures were reported to MCP clients as successes.** Every tool
+  returned its `{"ok": false, ...}` envelope in a result with `isError: false`
+  (measured: `illustrator_inspect` with Illustrator disconnected). A result
+  whose envelope has `ok: false` is now sent with `isError: true`, as the MCP
+  spec asks for tool execution errors; content and preview images are
+  unchanged. Tools no longer advertise FastMCP's automatic `outputSchema` for a
+  `str` return, which sent the same JSON a second time as
+  `structuredContent: {"result": "<string>"}`. See
+  `docs/MCP_LANDSCAPE_STUDY.md`, pattern 5.
 - **Found by a live run of every tool against Illustrator 30.8.1** (`tests_live/`):
   - `illustrator_text` stripped leading and trailing whitespace from `find`,
     `replace`, `replace_runs` and batch pairs (`ToolInputBase` strips strings), so

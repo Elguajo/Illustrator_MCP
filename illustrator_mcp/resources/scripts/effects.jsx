@@ -423,5 +423,14 @@ function fxRun(doc, P) {
         objects: objects
     };
     if (action === "apply") out.effect = P.effect;
+    var checked = 0;
+    for (var vi = 0; vi < objects.length; vi++) {
+        if (action === "remove" || objects[vi].verified === true) checked++;
+    }
+    out.verification = {
+        method: action === "remove" ? "appearance_read_back" : "visible_bounds_proxy",
+        checked_count: checked, unverified_count: objects.length - checked,
+        status: objects.length > checked ? "partial" : "performed"
+    };
     return out;
 }

@@ -130,7 +130,8 @@ async def _execute_via_bridge(
     )
     if not is_connected:
         # Connection errors: C001 (disconnected), C002 (refused), C003 (timeout on connect)
-        return error_response
+        from illustrator_mcp.result_contract import execution
+        return {**error_response, "execution": execution("not_started")}
 
     bridge = _get_bridge()
     
@@ -305,6 +306,7 @@ async def execute_script_with_context(
                     "ok": False,
                     "error": format_code(code, err_msg),
                     "trace_id": tid,
+                    "execution": {"state": "not_started", "safe_to_retry": True},
                 }
             except (OSError, json.JSONDecodeError) as e:
                 err_msg = str(e)
@@ -317,6 +319,7 @@ async def execute_script_with_context(
                     "ok": False,
                     "error": format_code(code, err_msg),
                     "trace_id": tid,
+                    "execution": {"state": "not_started", "safe_to_retry": True},
                 }
             except Exception as e:
                 err_msg = str(e)
@@ -325,6 +328,7 @@ async def execute_script_with_context(
                     "ok": False,
                     "error": format_code(ErrorCode.R_INJECTION_FAILED, err_msg),
                     "trace_id": tid,
+                    "execution": {"state": "not_started", "safe_to_retry": True},
                 }
     
     # Note: Connection check is done in _execute_via_bridge, avoiding duplication
@@ -503,6 +507,10 @@ def build_envelope_dict(
 
     warnings = warnings or []
     diagnostics = diagnostics or {}
+    if response.get("execution"):
+        diagnostics["execution"] = response["execution"]
+    if response.get("panel_health"):
+        diagnostics["panel_health"] = response["panel_health"]
 
     # Add trace info to diagnostics if present in response
     if response.get("trace_id"):
@@ -516,6 +524,7 @@ def build_envelope_dict(
             "code": structured.code,
             "message": structured.message,
             "suggestions": structured.suggestions,
+            "safe_to_retry": diagnostics.get("execution", {}).get("safe_to_retry") is True,
         }
         if line is not None:
             error_info["line"] = line
@@ -638,4 +647,3 @@ def format_envelope(
     return json.dumps(
         build_envelope_dict(response, context, warnings, diagnostics)
     )
-

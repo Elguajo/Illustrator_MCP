@@ -20,14 +20,12 @@ Lifecycle:
 - WebSocket bridge starts via lifespan management (see shared.py)
 - Bridge is automatically shut down when server stops
 
-SCRIPTING FIRST ARCHITECTURE:
-Following the blender-mcp pattern, this server exposes a minimal toolset.
-Most Illustrator operations should be done via the illustrator_execute_script tool.
+HYBRID TOOLSET:
+Typed operations and SOC batches cover routine work; execute_script is the
+escape hatch for other ExtendScript operations. All 18 tools are discovered by
+the default startup profile. ILLUSTRATOR_MCP_TOOL_PROFILE=core opts into 10 tools;
+app.py owns registration filtering, compact descriptions and server instructions.
 
-Core tools (~15 total):
-- execute: Run any ExtendScript code (PRIMARY tool)
-- documents: Create, open, save, export, import, undo/redo
-- context: Get document structure, selection info, app info
 """
 
 import logging
@@ -44,7 +42,7 @@ from illustrator_mcp.shared import mcp
 from illustrator_mcp.tools import register_tools
 
 # Register tools explicitly
-# Only essential tools are enabled - use execute_script for everything else
+# The startup profile is applied by the shared application decorator.
 register_tools(mcp)
 
 

@@ -91,7 +91,7 @@ function dmMcpId(item) {
  * path is null for a document that was never saved.
  */
 function dmDocumentRef(doc) {
-    var ref = { name: String(doc.name), path: null };
+    var ref = { name: String(doc.name), path: null, session_id: mcpDocumentSession(doc) };
     try { ref.path = (doc.fullName && doc.fullName.exists) ? doc.fullName.fsName : null; } catch (e) {}
     return ref;
 }

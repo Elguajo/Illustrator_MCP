@@ -5,6 +5,7 @@ Request registry for tracking pending WebSocket requests.
 import asyncio
 import logging
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, AsyncIterator
 
@@ -46,6 +47,26 @@ class RequestRegistry:
         self._streaming: Dict[int, StreamingRequest] = {}
         self._request_id = 0
         self._lock = threading.Lock()
+        # Metadata only: never retain scripts/results in recovery history.
+        self._execution: OrderedDict[int, dict] = OrderedDict()
+
+    def record_execution(self, request_id: int, state: str) -> dict:
+        from illustrator_mcp.result_contract import execution
+        with self._lock:
+            previous = self._execution.get(request_id)
+            if state == "unknown" and previous and previous["state"] in {"completed", "not_started"}:
+                return dict(previous)
+            self._execution[request_id] = execution(state, request_id)
+            while len(self._execution) > 64:
+                self._execution.popitem(last=False)
+            return dict(self._execution[request_id])
+
+    def execution_status(self, request_id: int | None = None) -> dict | None:
+        with self._lock:
+            if request_id is None:
+                request_id = next(reversed(self._execution), None)
+            record = self._execution.get(request_id)
+            return dict(record) if record else None
         
     def create_request(
         self,
@@ -256,6 +277,18 @@ class RequestRegistry:
         with self._lock:
             pending = self._pending.pop(request_id, None)
 
+        # A late response still resolves uncertainty, even after its future timed out.
+        if self.execution_status(request_id) is not None:
+            phase = result.get("execution", {}) if isinstance(result, dict) else {}
+            if not isinstance(phase, dict):
+                phase = {}
+            state = phase.get("state", "completed")
+            if not isinstance(result, dict) or not ("result" in result or "error" in result):
+                state = "unknown"
+            if state not in {"not_started", "completed", "unknown"}:
+                state = "unknown"
+            self.record_execution(request_id, state)
+
         if not pending:
             logger.warning(f"complete_request for unknown ID: {request_id}")
             return False
@@ -350,4 +383,3 @@ class RequestRegistry:
         """Number of active streaming requests — for monitoring."""
         with self._lock:
             return len(self._streaming)
-

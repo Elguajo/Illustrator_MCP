@@ -27,6 +27,7 @@ import logging
 logging.disable(logging.CRITICAL)
 from illustrator_mcp import server  # noqa: F401  (registers tools)
 from illustrator_mcp.shared import mcp
+from mcp.types import CallToolResult
 import illustrator_mcp.proxy_client as pc
 
 _call_no = 0
@@ -91,7 +92,7 @@ async def T(_tool, **params):
     """Call a tool through FastMCP (validation + formatting real). Returns (envelope, extras)."""
     _bridge.loop = asyncio.get_running_loop()
     res = await mcp.call_tool(_tool, {"params": params})
-    content = res[0] if isinstance(res, tuple) else res
+    content = res.content if isinstance(res, CallToolResult) else (res[0] if isinstance(res, tuple) else res)
     texts = [c.text for c in content if getattr(c, "type", "") == "text"]
     images = [c for c in content if getattr(c, "type", "") == "image"]
     raw = texts[0] if texts else ""

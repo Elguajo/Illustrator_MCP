@@ -122,7 +122,8 @@ function build(spec) {
   doc.visibleBounds = spec.docBounds || [0, 0, 600, -400];
   return { doc: doc, byName: byName };
 }
-var app = { textFonts: { getByName: function (n) {
+var $ = { global: {} };
+var app = { documents: [], textFonts: { getByName: function (n) {
   if (n.indexOf("Missing") === 0) throw new Error("No such element"); return { name: n, family: n }; } } };
 """
 
@@ -137,6 +138,7 @@ def _run(expr: str, spec: dict | None = None) -> dict:
 {src}
 var built = build({json.dumps(spec or {"layers": []})});
 var doc = built.doc;
+app.documents = [doc];
 try {{
   console.log(JSON.stringify({{ ok: true, value: (function () {{ return {expr}; }})() }}));
 }} catch (e) {{
@@ -240,12 +242,16 @@ class TestInspectNamesItsDocument:
     ])
     def test_every_view_carries_the_document_name(self, call):
         v = _value(f"dmWithDocument(doc, {call})", {**SCENE, "name": "poster.ai"})
-        assert v["document"] == {"name": "poster.ai", "path": None}
+        assert v["document"]["name"] == "poster.ai"
+        assert v["document"]["path"] is None
+        assert v["document"]["session_id"].startswith("doc-")
 
     def test_saved_document_reports_its_path(self):
         expr = ('(function () { doc.fullName = { exists: true, fsName: "/tmp/poster.ai" }; '
                 'return dmDocumentRef(doc); })()')
-        assert _value(expr, {**SCENE, "name": "poster.ai"}) == {"name": "poster.ai", "path": "/tmp/poster.ai"}
+        ref = _value(expr, {**SCENE, "name": "poster.ai"})
+        assert ref["name"] == "poster.ai" and ref["path"] == "/tmp/poster.ai"
+        assert ref["session_id"].startswith("doc-")
 
 
 class TestOwnerDocumentOf:
@@ -435,6 +441,7 @@ function describeItemV2(item) {{ return {{ itemType: item.typename }}; }}
 {src}
 var built = build({json.dumps(spec)});
 var doc = built.doc;
+app.documents = [doc];
 {prelude}
 try {{
   var items = collectTargets(doc, {json.dumps(target)});
@@ -663,7 +670,7 @@ catch (e) {{ console.log(JSON.stringify({{ threw: String(e.message) }})); }}
     def test_request_error_is_returned_as_a_marked_result(self):
         res = self._exec('dmFail("No artboard named \'x\'");')
         from illustrator_mcp.tools.doc_model_tools import decode_dm_wire
-        assert decode_dm_wire(res["returned"]) == {"__dm_request_error": "No artboard named 'x'"}
+        assert decode_dm_wire(res["returned"]) == {"__dm_request_error": "No artboard named 'x'", "__dm_not_started": False}
 
     def test_script_failure_still_throws(self):
         res = self._exec("undefinedThing.call();")
